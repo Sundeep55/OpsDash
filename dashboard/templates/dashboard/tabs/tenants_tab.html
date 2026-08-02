@@ -1,0 +1,8 @@
+<div v-show="activeTab === 'tenants'">
+    <div v-if="!selected.tenant">
+        {% include 'dashboard/tabs/tenants/list.html' %}
+    </div>
+    <div v-else>
+        {% include 'dashboard/tabs/tenants/detail.html' %}
+    </div>
+</div>

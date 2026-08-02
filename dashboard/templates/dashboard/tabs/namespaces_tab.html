@@ -1,0 +1,10 @@
+<div v-show="activeTab === 'namespaces'">
+    <!-- Automatically swaps between List and Detail based on Vue State -->
+    <div v-if="!selected.namespace">
+        {% include 'dashboard/tabs/namespaces/list.html' %}
+    </div>
+    
+    <div v-else>
+        {% include 'dashboard/tabs/namespaces/detail.html' %}
+    </div>
+</div>

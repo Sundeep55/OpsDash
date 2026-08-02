@@ -1,0 +1,154 @@
+---
+# 1. NON-SENSITIVE CONFIGURATION
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ops-portal-config
+  namespace: dcs-cluster-config
+  labels:
+    app: ops-portal
+data:
+  # Django Web Server Settings
+  DJANGO_DEBUG: "false"
+  DJANGO_ALLOWED_HOSTS: "ops-control-plane.com" # Or your specific Route hostname
+  DJANGO_CSRF_TRUSTED_ORIGINS: "https://ops-control-plane.com"
+  
+  # UI Text Variables
+  PORTAL_NAME: "Ops Control Plane"
+  PORTAL_TITLE: "Airbus DCS Operations"
+  
+  # GitLab Sync Configuration
+  GITLAB_URL: "https://gitlab.com"
+  GITLAB_PROJECT_ID: "xx"
+  GITLAB_BRANCH: "main"
+  GITLAB_SSL_VERIFY: "false"
+  POLL_INTERVAL_SECONDS: "30"
+  
+  # GitLab Deep Linking in UI
+  GIT_BROWSER_URL: "https://gitlab.com/dcs/dcs-customer-instances/-/tree/main"
+  
+  # Tell Django to put the SQLite DB in the Persistent Volume
+  DATABASE_PATH: "/app/data/db.sqlite3"
+
+---
+# 2. SENSITIVE CREDENTIALS (Opaque Secret)
+
+---
+# 3. DATABASE STORAGE (PVC)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ops-portal-data
+  namespace: dcs-cluster-config
+  labels:
+    app: ops-portal
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+# 4. THE DEPLOYMENT (Web Server + Sync Sidecar)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-portal
+  namespace: dcs-cluster-config
+  labels:
+    app: ops-portal
+spec:
+  replicas: 1 # Must remain 1 to prevent SQLite file locking conflicts
+  selector:
+    matchLabels:
+      app: ops-portal
+  template:
+    metadata:
+      labels:
+        app: ops-portal
+    spec:
+      volumes:
+        - name: sqlite-data
+          persistentVolumeClaim:
+            claimName: ops-portal-data
+      
+      containers:
+        # CONTAINER A: The Gunicorn Web Server
+        - name: web-server
+          image: registry.com/images/ops-control-plane:0.1.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: ops-portal-config
+            - secretRef:
+                name: ops-portal-secret
+          volumeMounts:
+            - name: sqlite-data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+        # CONTAINER B: The GitLab Polling Sidecar
+        - name: sync-sidecar
+          image: registry.com/images/ops-control-plane:0.1.0
+          imagePullPolicy: Always
+          args: ["sidecar"] # Triggers the elif in entrypoint.sh
+          envFrom:
+            - configMapRef:
+                name: ops-portal-config
+            - secretRef:
+                name: ops-portal-secret
+          volumeMounts:
+            - name: sqlite-data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+
+---
+# 5. INTERNAL SERVICE
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-portal-svc
+  namespace: dcs-cluster-config
+  labels:
+    app: ops-portal
+spec:
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    app: ops-portal
+
+---
+# 6. EXTERNAL ROUTE (OpenShift specific)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ops-portal-route
+  namespace: dcs-cluster-config
+  labels:
+    app: ops-portal
+spec:
+  to:
+    kind: Service
+    name: ops-portal-svc
+  port:
+    targetPort: 8000
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

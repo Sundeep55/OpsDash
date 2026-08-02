@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@layer components {
+    /* Base Body */
+    body {
+        @apply bg-slate-50 text-slate-900 antialiased;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    /* Navigation Pills */
+    .nav-pill { @apply px-5 py-2 rounded-full text-sm font-semibold transition-all duration-200 ease-in-out whitespace-nowrap outline-none; }
+    .nav-pill-active { @apply bg-slate-900 text-white shadow-md; }
+    .nav-pill-inactive { @apply text-slate-500 hover:bg-slate-200 hover:text-slate-900; }
+
+    /* Bento Box Design System */
+    .bento-card { @apply bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden; }
+    .bento-header { @apply px-6 py-4 border-b border-slate-100 bg-gradient-to-b from-white to-slate-50 flex items-center gap-2; }
+    .bento-title { @apply text-sm font-bold text-slate-900 m-0 flex items-center gap-2; }
+    .bento-body { @apply p-6; }
+
+    /* Data Tables */
+    .data-table-wrapper { @apply bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden; }
+    .data-table { @apply w-full text-left; }
+    .data-table th { @apply bg-white text-slate-500 font-semibold text-xs uppercase tracking-wider px-6 py-4 border-b border-slate-100; }
+    .data-table td { @apply px-6 py-4 border-b border-slate-50 text-sm text-slate-700; }
+    .data-table tr:hover td { @apply bg-slate-50 text-slate-900 cursor-pointer transition-colors; }
+    .data-table tr:last-child td { @apply border-b-0; }
+
+    /* Interactive Links with Icons */
+    .entity-link { @apply inline-flex items-center text-sm font-bold text-blue-600 hover:text-blue-800 cursor-pointer transition-colors hover:underline; }
+    .entity-icon { @apply w-4 h-4 mr-1.5 shrink-0; }
+
+    /* Badges */
+    .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider mr-1.5 mb-1.5 whitespace-nowrap; }
+    .badge-blue { @apply bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-200; }
+    .badge-purple { @apply bg-purple-50 text-purple-600 ring-1 ring-inset ring-purple-200; }
+    .badge-green { @apply bg-green-50 text-green-600 ring-1 ring-inset ring-green-200; }
+    .badge-red { @apply bg-red-50 text-red-600 ring-1 ring-inset ring-red-200; }
+    .badge-slate { @apply bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-200; border: 1px solid #e2e8f0; }
+    .badge-indigo { @apply bg-indigo-50 text-indigo-600 ring-1 ring-inset ring-indigo-200; }
+
+    /* Utilities */
+    .interactive-row { @apply transition-all duration-200 cursor-pointer border-l-4 border-transparent hover:bg-slate-50 hover:border-blue-500 px-5 py-3; }
+    .meta-label { @apply text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1; }
+    
+    [v-cloak] { display: none; }
+}

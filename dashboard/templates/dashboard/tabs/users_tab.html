@@ -1,0 +1,8 @@
+<div v-show="activeTab === 'users'">
+    <div v-if="!selected.user">
+        {% include 'dashboard/tabs/users/list.html' %}
+    </div>
+    <div v-else>
+        {% include 'dashboard/tabs/users/detail.html' %}
+    </div>
+</div>

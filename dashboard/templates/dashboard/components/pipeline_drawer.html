@@ -1,0 +1,65 @@
+<div v-show="pipelineUI.isOpen" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true" style="display: none;">
+    
+    <!-- Background backdrop: Increased darkness to 75% and added fallback inline styles for guaranteed blur -->
+    <div @click="pipelineUI.isOpen = false" class="fixed inset-0 bg-slate-900/75 transition-opacity" style="backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);"></div>
+
+    <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+        <!-- Modal panel, restricting max height to 90vh to force internal scrolling -->
+        <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-4xl flex flex-col max-h-[90vh]">
+            
+            <div class="px-6 py-5 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0 z-10">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-blue-100 rounded-lg">
+                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-900">[[ pipelineUI.actionName ]]</h2>
+                        <p class="text-xs text-slate-500 mt-1">GitOps Pipeline Provisioner</p>
+                    </div>
+                </div>
+                <button @click="pipelineUI.isOpen = false" class="text-slate-400 hover:text-slate-600 transition-colors bg-white border border-slate-200 hover:bg-slate-50 rounded-full p-2 shadow-sm">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div v-if="pipelineUI.isLoading" class="flex-1 flex flex-col items-center justify-center p-12 bg-white">
+                <svg class="animate-spin h-10 w-10 text-blue-600 mb-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <p class="text-slate-500 font-medium animate-pulse">Initializing pipeline schema...</p>
+            </div>
+
+            <form v-else @submit.prevent="submitPipelineForm" class="flex flex-col overflow-hidden h-full">
+                <!-- overflow-y-auto is applied here to make the fields scrollable -->
+                <div class="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-slate-50/50">
+                    
+                    <div v-for="(fieldInfo, key) in pipelineUI.schema" :key="key" v-show="shouldShowField(fieldInfo)" class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm transition-all">
+                        
+                        <label class="block text-sm font-bold text-slate-800 mb-1">[[ key.replace(/_/g, ' ') ]]</label>
+                        <p class="text-xs text-slate-500 mb-3 font-medium">[[ fieldInfo.description ]]</p>
+                        
+                        <!-- BOOLEAN (CHECKBOX) -->
+                        <div v-if="fieldInfo.type === 'boolean'" class="flex items-center mt-2">
+                            <input type="checkbox" v-model="pipelineUI.formData[key]" class="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-600 transition-all cursor-pointer">
+                            <span class="ml-3 text-sm font-semibold text-slate-700">Enable Feature</span>
+                        </div>
+                        
+                        <!-- SELECT DROPDOWN -->
+                        <select v-else-if="fieldInfo.options || fieldInfo.type === 'select'" v-model="pipelineUI.formData[key]" class="block w-full rounded-lg border-0 py-2.5 pl-4 pr-10 text-slate-900 ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-blue-600 sm:text-sm sm:leading-6 outline-none bg-slate-50 focus:bg-white transition-all font-medium">
+                            <option v-for="opt in fieldInfo.options" :key="opt" :value="opt">[[ opt ]]</option>
+                        </select>
+                        
+                        <!-- TEXT INPUT -->
+                        <input v-else type="text" v-model="pipelineUI.formData[key]" class="block w-full rounded-lg border-0 py-2.5 px-4 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-600 sm:text-sm sm:leading-6 outline-none bg-slate-50 focus:bg-white transition-all font-medium" :placeholder="fieldInfo.default">
+                    </div>
+                </div>
+
+                <div class="px-6 py-4 bg-white border-t border-slate-200 flex justify-end gap-3 shrink-0 z-10">
+                    <button type="button" @click="pipelineUI.isOpen = false" class="px-5 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-sm outline-none">Cancel</button>
+                    <button type="submit" class="px-5 py-2.5 text-sm font-bold text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 transition-colors shadow-md outline-none flex items-center">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Trigger Pipeline
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

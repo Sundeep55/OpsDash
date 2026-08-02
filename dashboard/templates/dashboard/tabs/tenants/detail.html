@@ -1,0 +1,105 @@
+<button @click="selected.tenant = null" class="group mb-6 text-sm font-semibold text-slate-500 hover:text-slate-900 flex items-center transition-colors">
+    <svg class="mr-2 h-4 w-4 text-slate-400 group-hover:text-slate-900" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+    Back to Directory
+</button>
+
+<div class="mb-8">
+    <div class="flex items-start justify-between">
+        <div class="flex items-center gap-3">
+            <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+            <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight">[[ selected.tenant.tenant_name || selected.tenant.name ]]</h2>
+            <span v-if="selected.tenant.is_decommissioned" class="badge badge-red !m-0 mt-1">DECOMMISSIONED</span>
+            <span v-if="selected.tenant.has_cso" class="badge !bg-teal-100 !text-teal-800 !border-teal-200 !m-0 mt-1">HAS EGRESS</span>
+        </div>
+        
+        <!-- GIT BROWSER BUTTON -->
+        <a v-if="gitBrowserUrl" :href="`${gitBrowserUrl}/${selected.tenant.cluster}/${selected.tenant.tenant_name || selected.tenant.name}`" target="_blank" class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+            View in Git
+        </a>
+    </div>
+</div>
+
+<div class="bento-card mb-6">
+    <div class="bento-header"><h4 class="bento-title">Tenant Routing & Ownership</h4></div>
+    <div class="bento-body grid grid-cols-2 md:grid-cols-4 gap-6">
+        <div>
+            <span class="meta-label">Target Cluster</span>
+            <div class="text-sm font-mono font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded px-2 py-1 inline-flex items-center gap-1.5 shadow-sm">
+                <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
+                [[ selected.tenant.cluster ]]
+            </div>
+        </div>
+        <div>
+            <span class="meta-label">Siglum</span>
+            <a @click="jumpTo('siglums', selected.tenant.siglum)" class="entity-link">
+                <svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path></svg>
+                [[ selected.tenant.siglum || 'N/A' ]]
+            </a>
+        </div>
+        <div>
+            <span class="meta-label">ITSM Ticket</span>
+            <a v-if="selected.tenant.request_ticket" @click="jumpTo('requests', selected.tenant.request_ticket)" class="entity-link">
+                <svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"></path></svg>
+                [[ selected.tenant.request_ticket ]]
+            </a>
+            <p v-else class="text-sm font-medium text-slate-400 italic">Unlinked</p>
+        </div>
+        <div>
+            <span class="meta-label">Requested By</span>
+            <p v-if="selected.tenant.requester" class="text-sm font-medium text-slate-800 truncate flex items-center" :title="selected.tenant.requester">
+                <svg class="w-4 h-4 mr-1.5 text-slate-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
+                [[ selected.tenant.requester ]]
+            </p>
+            <p v-else class="text-sm font-medium text-slate-400 italic">Unknown</p>
+        </div>
+    </div>
+</div>
+
+<div class="bento-card">
+    <div class="bento-header"><h4 class="bento-title">Namespace Roster</h4></div>
+    <div class="p-0">
+        <ul class="divide-y divide-slate-100">
+            <li v-for="ns in selected.tenant.active_namespaces" :key="ns.name" class="p-5 flex flex-col md:flex-row md:items-center justify-between hover:bg-slate-50 transition-colors gap-4">
+                
+                <a @click="jumpTo('namespaces', ns.name)" class="entity-link shrink-0 w-1/3">
+                    <svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                    <span class="truncate" :title="ns.name">[[ ns.name ]]</span>
+                </a>
+                
+                <div class="flex flex-wrap items-center md:justify-end gap-1.5 flex-1">
+                    <span v-if="ns.is_cso" class="badge !bg-teal-100 !text-teal-800 !border-teal-200 !m-0">EGRESS</span>
+                    <span v-else-if="ns.lifecycle && !ns.is_devspace" :class="['badge !m-0', ns.lifecycle.toLowerCase() === 'prod' ? 'badge-green' : 'badge-blue']">[[ ns.lifecycle.toUpperCase() ]]</span>
+                    <span v-if="ns.is_devspace" class="badge badge-purple !m-0">DEVSPACE</span>
+                    
+                    <span v-if="ns.network_flows?.enabled" title="Custom Flows" class="badge badge-green !m-0 !px-1.5 !py-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg></span>
+                    <span v-if="ns.network_flows?.dns" title="DNS Resolution" class="badge badge-blue !m-0 !px-1.5 !py-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg></span>
+                    <span v-if="ns.network_flows?.proxy" title="Proxy Access" class="badge badge-indigo !m-0 !px-1.5 !py-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg></span>
+                    
+                    <span v-if="ns.registry_mirrors?.length" title="Custom Registry Mirror" class="badge badge-slate !m-0 !px-1.5 !py-1 bg-white text-slate-600"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg></span>
+                    <span v-if="ns.templates?.length" title="Custom Resources" class="badge badge-slate !m-0 !px-1.5 !py-1 bg-white text-slate-700 font-bold"><svg class="w-3.5 h-3.5 mr-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>[[ ns.templates.length ]]</span>
+                    
+                    <!-- FIX: Updated Vue Bindings & Title to use routeException -->
+                    <span v-if="ns.routeException?.enabled" title="Route Exception Active" :class="['badge !m-0 !px-1.5 !py-1 text-white font-bold', ns.routeException.status === 'expired' ? 'bg-red-500 ring-red-600' : 'bg-orange-500 ring-orange-600']"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg></span>
+                    
+                    <template v-if="ns.operators">
+                        <span v-for="(conf, opName) in ns.operators" :key="opName" v-show="conf.enabled" class="badge badge-slate !mb-0 !px-1.5 !py-1 bg-white shadow-sm" :title="`Operator: ${opName.replace('Operator', '')}`">
+                            <span v-html="getOperatorIcon(opName)"></span>
+                        </span>
+                    </template>
+                </div>
+            </li>
+
+            <li v-for="ns in selected.tenant.decommissioned_namespaces" :key="ns.name" class="p-5 flex items-center justify-between bg-slate-50/50">
+                <a @click="jumpTo('namespaces', ns.name)" class="entity-link !text-red-500 line-through">
+                    <svg class="entity-icon text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                    [[ ns.name ]]
+                </a>
+                <span class="badge badge-red !m-0">Decommissioned Snapshot</span>
+            </li>
+            <li v-if="!selected.tenant.active_namespaces?.length && !selected.tenant.decommissioned_namespaces?.length" class="p-5 text-center text-sm italic text-slate-500 bg-slate-50 border-t border-slate-200">
+                No active or decommissioned namespaces found.
+            </li>
+        </ul>
+    </div>
+</div>
