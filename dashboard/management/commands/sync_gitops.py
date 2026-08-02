@@ -21,7 +21,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--repo-path',
             type=str,
-            default='/projects/dcs-tools/dcs-customer-instances',
+            default='/projects/tools/customer-instances',
             help='Fallback local path to the GitOps cluster/tenant folders if GitLab is not configured',
         )
 
@@ -287,19 +287,19 @@ class Command(BaseCommand):
                                 active_helm_ids.add(hd_obj.id)
                                 
                         elif ns_obj:
-                            prov = parsed_yaml.get('dcs-namespace-provisioner') or {}
+                            prov = parsed_yaml.get('namespace-provisioner') or {}
                             
-                            cso = parsed_yaml.get('dcs-egress') or {}
+                            cso = parsed_yaml.get('egress') or {}
                             if cso:
                                 ns_obj.is_cso = True
                                 req_labels = cso.get('requiredLabels') or {}
                                 add_labels = cso.get('additionalLabels') or {}
                                 
                                 extracted_lc = (
-                                    req_labels.get('dcs.airbus.com/lifecycle') or
-                                    req_labels.get('dcs.airbus.com/env') or
-                                    add_labels.get('dcs.airbus.com/lifecycle') or
-                                    add_labels.get('dcs.airbus.com/env')
+                                    req_labels.get('lifecycle') or
+                                    req_labels.get('env') or
+                                    add_labels.get('lifecycle') or
+                                    add_labels.get('env')
                                 )
                                 if extracted_lc:
                                     ns_obj.lifecycle = str(extracted_lc).strip().lower()
@@ -333,10 +333,10 @@ class Command(BaseCommand):
                                 devspace = prov.get('devspaceConfig') or {}
                                 
                                 extracted_lc = (
-                                    req_labels.get('dcs.airbus.com/lifecycle') or
-                                    req_labels.get('dcs.airbus.com/env') or
-                                    add_labels.get('dcs.airbus.com/lifecycle') or
-                                    add_labels.get('dcs.airbus.com/env')
+                                    req_labels.get('lifecycle') or
+                                    req_labels.get('env') or
+                                    add_labels.get('lifecycle') or
+                                    add_labels.get('env')
                                 )
                                 if extracted_lc:
                                     ns_obj.lifecycle = str(extracted_lc).strip().lower()
@@ -348,7 +348,7 @@ class Command(BaseCommand):
                                 if ns_siglum:
                                     ns_obj.siglum = ns_siglum
                                 
-                                egress_name = add_labels.get('dcs.airbus.com/egressip_name')
+                                egress_name = add_labels.get('egressip_name')
                                 if egress_name:
                                     router_obj, _ = EgressRouter.objects.get_or_create(name=egress_name, defaults={'cluster': cluster_obj})
                                     ns_obj.egress_router = router_obj
@@ -483,7 +483,7 @@ class Command(BaseCommand):
                                 
                                 success_count += 1
 
-                            mesh = parsed_yaml.get('dcs-service-mesh') or {}
+                            mesh = parsed_yaml.get('service-mesh') or {}
                             if mesh:
                                 cluster_cfg = mesh.get('cluster') or {}
                                 cp_cfg = mesh.get('cp') or {}
@@ -519,7 +519,7 @@ class Command(BaseCommand):
                             elif prov:
                                 ServiceMeshControlPlane.objects.filter(namespace=ns_obj).delete()
 
-                            reg_cfg = parsed_yaml.get('dcs-registry-config') or {}
+                            reg_cfg = parsed_yaml.get('registry-config') or {}
                             if reg_cfg:
                                 registries = { r.get('name'): r for r in reg_cfg.get('registries', []) }
                                 replications = reg_cfg.get('dockerRegistryReplications', [])
