@@ -8,11 +8,10 @@ if [ "$1" = "sidecar" ]; then
     sleep 10 
     exec python manage.py poll_gitlab_pipelines
 else
-    echo "Detecting database model changes..."
-    # Force Django to detect models and write the migration file dynamically
-    python manage.py makemigrations dashboard 
-    
     echo "Applying database migrations..."
+    # Migrations are committed to the repo and baked into the image. Never generate
+    # them at runtime: that makes the schema depend on pod start order and silently
+    # diverges from the DB already on the PVC.
     python manage.py migrate --noinput
 
     if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && [ -n "$DJANGO_SUPERUSER_PASSWORD" ]; then
