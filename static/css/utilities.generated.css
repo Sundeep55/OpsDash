@@ -35,6 +35,7 @@
   .ring-orange-200 { --tw-ring-color: var(--color-orange-200); }
   .ring-teal-200 { --tw-ring-color: var(--color-teal-200); }
   .text-blue-100 { color: var(--color-blue-100); }
+  .text-emerald-600 { color: var(--color-emerald-600); }
   .text-orange-700 { color: var(--color-orange-700); }
   .text-red-600 { color: var(--color-red-600); }
   .text-teal-600 { color: var(--color-teal-600); }

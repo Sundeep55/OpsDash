@@ -217,12 +217,14 @@ createApp({
             namespaces.items.value.length > 0 || tenants.items.value.length > 0 || analytics.analytics.value !== null
         );
 
+        // An icon mapping supplies either a vendored image path or inline svg;
+        // see the notes in ui_config.js for why both exist.
         const getOperatorIcon = name => {
             const lower = String(name).toLowerCase();
             const match = UI_CONFIG.operators.iconMappings.find(m => m.match.some(t => lower.includes(t)));
-            return match
-                ? `<img src="${match.path}" alt="${match.label}" class="w-4 h-4 shrink-0 object-contain" />`
-                : UI_CONFIG.operators.defaultSvg;
+            if (!match) return UI_CONFIG.operators.defaultSvg;
+            if (match.svg) return match.svg;
+            return `<img src="${match.path}" alt="${match.label}" class="w-4 h-4 shrink-0 object-contain" />`;
         };
 
         return {

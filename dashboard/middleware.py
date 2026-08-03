@@ -11,9 +11,8 @@ from django.conf import settings
 ACTIVITY_REFRESH_INTERVAL = 60
 
 # The UI polls this on a timer. Refreshing the idle clock from it would keep a
-# session alive forever on an unattended tab. Both the versioned path and the
-# legacy alias resolve to the same view, so both must be listed.
-SYNC_STATUS_PATHS = ('/api/v2/sync/status/', '/api/sync/status/')
+# session alive forever on an unattended tab.
+SYNC_STATUS_PATHS = ('/api/v2/sync/status/',)
 
 
 class AutoLogoutMiddleware:

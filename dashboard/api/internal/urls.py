@@ -21,11 +21,3 @@ urlpatterns = [
     path('sync/', sync.TriggerSyncView.as_view(), name='api-sync'),
     path('sync/status/', sync.SyncStatusView.as_view(), name='api-sync-status'),
 ]
-
-# Unversioned aliases, mounted at the project root rather than under /api/v2/.
-# Kept live because app.js still calls them; drop once the frontend pass moves
-# it to the versioned paths above.
-legacy_urlpatterns = [
-    path('api/sync/', sync.LegacyTriggerSyncView.as_view(), name='api-sync-legacy'),
-    path('api/sync/status/', sync.LegacySyncStatusView.as_view(), name='api-sync-status-legacy'),
-]

@@ -53,21 +53,3 @@ class TriggerSyncView(generics.GenericAPIView):
         thread = threading.Thread(target=run_sync_task, daemon=True)
         thread.start()
         return Response({"status": "success", "message": "GitOps Sync started."}, status=202)
-
-
-# --- Legacy unversioned aliases -------------------------------------------
-# /api/sync/ and /api/sync/status/ predate the /api/v2/ prefix that everything
-# else sits behind. app.js still calls the old paths and the frontend is a
-# separate later pass, so both routes stay live and resolve to the same
-# behaviour. Excluded from the schema so the published docs show one canonical
-# path per operation rather than duplicate operationIds.
-# Remove these once app.js has been moved to the v2 paths.
-
-@extend_schema(exclude=True)
-class LegacySyncStatusView(SyncStatusView):
-    pass
-
-
-@extend_schema(exclude=True)
-class LegacyTriggerSyncView(TriggerSyncView):
-    pass
