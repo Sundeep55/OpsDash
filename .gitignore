@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+# The SQLite DB is disposable and fully rebuildable from Git via sync_gitops.
+*.sqlite3
+db.sqlite3
+
+# collectstatic output, baked into the image at build time.
+/staticfiles/
+
+.venv/
+venv/

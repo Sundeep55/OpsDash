@@ -6,8 +6,9 @@ class CustomLogger(Logger):
     to prevent them from spamming the OpenShift container logs.
     """
     def access(self, resp, req, environ, request_time):
-        # Mute the silent Vue.js Smart Ping endpoint
-        if '/api/sync/status/' in req.path:
+        # Mute the silent Vue.js Smart Ping endpoint. Matches both the versioned
+        # path and the legacy unversioned alias.
+        if req.path.endswith('/sync/status/'):
             return
             
         # Mute standard Kubernetes health checks (optional, but good practice)

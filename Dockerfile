@@ -1,4 +1,6 @@
-FROM python:3.9-slim
+# Python 3.13: 3.9 reached end of life in October 2025 and stopped receiving
+# security patches. 3.13 is within Django 5.2 LTS's supported range (3.10-3.13).
+FROM python:3.13-slim
 
 # Prevent Python from writing pyc files and enable unbuffered logging
 ENV PYTHONDONTWRITEBYTECODE=1

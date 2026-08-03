@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Cluster, Tenant, EgressRouter, Namespace,
-    ResourceQuota, LimitRange, GPUAllocation,
+    ResourceQuota, GPUAllocation,
     ServiceMeshControlPlane, NetworkPolicy, RouteException, HarborConfig,
     Operator, HelmDeployment, RegistryMirror, CustomResource,
     RobotAccount, NetworkConnection, UserAccess
@@ -49,7 +49,6 @@ class UserAccessAdmin(admin.ModelAdmin):
 
 # Standard registrations for the One-to-One and remaining One-to-Many models
 admin.site.register(ResourceQuota)
-admin.site.register(LimitRange)
 admin.site.register(GPUAllocation)
 admin.site.register(ServiceMeshControlPlane)
 admin.site.register(NetworkPolicy)

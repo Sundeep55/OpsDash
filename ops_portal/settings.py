@@ -27,6 +27,12 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': os.environ.get('DATABASE_PATH', BASE_DIR / 'db.sqlite3'),
+        'OPTIONS': {
+            # Wait for a busy writer instead of failing instantly with
+            # "database is locked". WAL keeps readers unblocked (see
+            # dashboard/apps.py), but writers still serialise against each other.
+            'timeout': 30,
+        },
     }
 }
 
@@ -98,9 +104,27 @@ STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 
-# Using CompressedStaticFilesStorage avoids the CSS import parsing crash 
-# caused by the missing local tailwind file, while still compressing assets.
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+# Content-hashed filenames, so a deploy cannot leave users on a stale cached
+# app.js until they hard-refresh. This previously crashed collectstatic because
+# static/css/input.css -- a Tailwind SOURCE file -- begins with
+# `@import "tailwindcss";`, which the manifest post-processor cannot resolve to
+# a collected asset. That file now lives in assets/css/ and is not collected;
+# see the comment at the top of it. base.html only ever loaded the compiled
+# static/css/tailwind.css, which has no imports or url() references.
+#
+# Must be STORAGES, not the old STATICFILES_STORAGE: that setting was removed in
+# Django 5.1 and is now ignored *silently* -- no error, no warning, `check` and
+# `check --deploy` both pass, and static files quietly fall back to unhashed and
+# uncompressed. Django does not merge this dict with its defaults, so the
+# unused-but-required "default" entry has to be spelled out too.
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 
 # =====================================================================
