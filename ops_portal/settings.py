@@ -104,9 +104,14 @@ STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 
-# Using CompressedStaticFilesStorage avoids the CSS import parsing crash 
-# caused by the missing local tailwind file, while still compressing assets.
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+# Content-hashed filenames, so a deploy cannot leave users on a stale cached
+# app.js until they hard-refresh. This previously crashed collectstatic because
+# static/css/input.css -- a Tailwind SOURCE file -- begins with
+# `@import "tailwindcss";`, which the manifest post-processor cannot resolve to
+# a collected asset. That file now lives in assets/css/ and is not collected;
+# see the comment at the top of it. base.html only ever loaded the compiled
+# static/css/tailwind.css, which has no imports or url() references.
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 
 # =====================================================================

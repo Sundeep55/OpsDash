@@ -1,3 +1,15 @@
+/* Tailwind SOURCE file. Compiled to static/css/tailwind.css, which is what
+ * base.html actually loads.
+ *
+ * Deliberately kept OUT of static/: collectstatic under
+ * ManifestStaticFilesStorage post-processes every collected .css and tries to
+ * resolve its @import targets against the other collected files. "tailwindcss"
+ * is a node package, not a static asset, so it cannot resolve and collectstatic
+ * dies. That crash is why the project ran CompressedStaticFilesStorage -- and
+ * therefore shipped without content hashes -- until this file was moved here.
+ *
+ * Do not move this back under static/.
+ */
 @import "tailwindcss";
 
 @layer components {
