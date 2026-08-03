@@ -27,7 +27,6 @@ class Tenant(models.Model):
     siglum = models.CharField(max_length=50, null=True, blank=True)
     cost_center = models.CharField(max_length=100, null=True, blank=True)
     requester = models.CharField(max_length=255, null=True, blank=True)
-    tenant_owner = models.CharField(max_length=255, null=True, blank=True)
     is_decommissioned = models.BooleanField(default=False)
     request_ticket = models.CharField(max_length=100, null=True, blank=True)
 
@@ -99,16 +98,6 @@ class ResourceQuota(models.Model):
     requests_memory = models.CharField(max_length=50, null=True, blank=True)
     limits_memory = models.CharField(max_length=50, null=True, blank=True)
     requests_storage = models.CharField(max_length=50, null=True, blank=True)
-    requests_ephemeral_storage = models.CharField(max_length=50, null=True, blank=True)
-
-class LimitRange(models.Model):
-    namespace = models.OneToOneField(Namespace, on_delete=models.CASCADE, related_name='limit_range')
-    container_request_cpu = models.CharField(max_length=50, null=True, blank=True)
-    container_cpu = models.CharField(max_length=50, null=True, blank=True)
-    container_request_ram = models.CharField(max_length=50, null=True, blank=True)
-    container_ram = models.CharField(max_length=50, null=True, blank=True)
-    storage_min = models.CharField(max_length=50, null=True, blank=True)
-    storage_max = models.CharField(max_length=50, null=True, blank=True)
 
 class GPUAllocation(models.Model):
     namespace = models.OneToOneField(Namespace, on_delete=models.CASCADE, related_name='gpu_allocation')
@@ -121,9 +110,6 @@ class GPUAllocation(models.Model):
 class ServiceMeshControlPlane(models.Model):
     namespace = models.OneToOneField(Namespace, on_delete=models.CASCADE, related_name='is_service_mesh_cp')
     domain = models.CharField(max_length=255, null=True, blank=True)
-    kiali_name = models.CharField(max_length=255, null=True, blank=True)
-    gateway_namespaces = models.JSONField(default=list, blank=True)
-    cp_tenant = models.CharField(max_length=255, null=True, blank=True)
     dataplane_namespaces = models.JSONField(default=list, blank=True)
 
 class NetworkPolicy(models.Model):
@@ -164,10 +150,8 @@ class RegistryMirror(models.Model):
     namespace = models.ForeignKey(Namespace, on_delete=models.CASCADE, related_name='registry_mirrors')
     name = models.CharField(max_length=255)
     endpoint_url = models.URLField(max_length=500)
-    provider_name = models.CharField(max_length=100, null=True, blank=True)
     image = models.CharField(max_length=500, null=True, blank=True)
     tag = models.CharField(max_length=100, null=True, blank=True)
-    schedule = models.CharField(max_length=100, null=True, blank=True)
 
 class CustomResource(models.Model):
     namespace = models.ForeignKey(Namespace, on_delete=models.CASCADE, related_name='custom_resources')

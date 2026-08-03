@@ -16,7 +16,7 @@ from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiTypes
 # --- IMPORT MODELS ---
 from .models import (
     Cluster, Tenant, EgressRouter, Namespace,
-    ResourceQuota, LimitRange, GPUAllocation,
+    ResourceQuota, GPUAllocation,
     ServiceMeshControlPlane, NetworkPolicy, RouteException, HarborConfig,
     Operator, HelmDeployment, RegistryMirror, CustomResource,
     RobotAccount, NetworkConnection, UserAccess, SystemSyncStatus,

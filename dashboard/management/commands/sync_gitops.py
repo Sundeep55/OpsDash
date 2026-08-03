@@ -8,7 +8,7 @@ import urllib3
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from dashboard.models import (
-    Cluster, Tenant, EgressRouter, Namespace, ResourceQuota, LimitRange,
+    Cluster, Tenant, EgressRouter, Namespace, ResourceQuota,
     GPUAllocation, ServiceMeshControlPlane, NetworkPolicy, RouteException,
     HarborConfig, Operator, HelmDeployment, RegistryMirror, CustomResource,
     RobotAccount, NetworkConnection, UserAccess, SystemSyncStatus,
@@ -449,27 +449,10 @@ class Command(BaseCommand):
                                                 'requests_memory': rq.get('requestsMemory'),
                                                 'limits_memory': rq.get('limitsMemory'),
                                                 'requests_storage': rq.get('requestsStorage'),
-                                                'requests_ephemeral_storage': rq.get('requestsEphemeralStorage')
                                             }
                                         )
                                     else:
                                         ResourceQuota.objects.filter(namespace=ns_obj).delete()
-
-                                    lr = prov.get('limitRange') or {}
-                                    if lr:
-                                        LimitRange.objects.update_or_create(
-                                            namespace=ns_obj,
-                                            defaults={
-                                                'storage_max': lr.get('storageMax'),
-                                                'storage_min': lr.get('storageMin'),
-                                                'container_cpu': lr.get('containerCPU'),
-                                                'container_request_cpu': lr.get('containerRequestCPU'),
-                                                'container_ram': lr.get('containerRAM'),
-                                                'container_request_ram': lr.get('containerRequestRAM'),
-                                            }
-                                        )
-                                    else:
-                                        LimitRange.objects.filter(namespace=ns_obj).delete()
 
                                     harbor = prov.get('harborOnboardingConfig') or {}
                                     if harbor.get('enable'):
@@ -518,9 +501,6 @@ class Command(BaseCommand):
                                 mesh = parsed_yaml.get('service-mesh') or {}
                                 if mesh:
                                     cluster_cfg = mesh.get('cluster') or {}
-                                    cp_cfg = mesh.get('cp') or {}
-                                    kiali_cfg = cp_cfg.get('kiali') or {}
-                                    gw_cfg = cp_cfg.get('gw') or {}
                                     dp_cfg = mesh.get('dataplane') or {}
                                     dp_namespaces = dp_cfg.get('namespaces') or []
                                 
@@ -528,9 +508,6 @@ class Command(BaseCommand):
                                         namespace=ns_obj,
                                         defaults={
                                             'domain': cluster_cfg.get('domain', ''),
-                                            'kiali_name': kiali_cfg.get('name', ''),
-                                            'gateway_namespaces': gw_cfg.get('namespaces', []),
-                                            'cp_tenant': cp_cfg.get('tenant', ''),
                                             'dataplane_namespaces': dp_namespaces if isinstance(dp_namespaces, list) else []
                                         }
                                     )
@@ -572,10 +549,8 @@ class Command(BaseCommand):
                                                 namespace=ns_obj,
                                                 name=reg_name or rep.get('name', 'mirror'),
                                                 endpoint_url=reg_info.get('endpointUrl', ''),
-                                                provider_name=reg_info.get('providerName', ''),
                                                 image=image_filter,
                                                 tag=tag_filter,
-                                                schedule=rep.get('schedule', '')
                                             )
                                     if not prov and not mesh and not cso:
                                         success_count += 1

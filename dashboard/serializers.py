@@ -5,7 +5,7 @@ from datetime import date
 from django.db.models import Prefetch
 from .models import (
     Cluster, Tenant, EgressRouter, Namespace,
-    ResourceQuota, LimitRange, GPUAllocation,
+    ResourceQuota, GPUAllocation,
     ServiceMeshControlPlane, NetworkPolicy, RouteException, HarborConfig,
     Operator, HelmDeployment, RegistryMirror, CustomResource,
     RobotAccount, NetworkConnection, UserAccess
