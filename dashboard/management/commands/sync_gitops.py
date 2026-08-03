@@ -5,14 +5,19 @@ import zipfile
 import shutil
 import requests
 import urllib3
-from django.utils import timezone
 from django.core.management.base import BaseCommand
 from dashboard.models import (
-    Cluster, Tenant, EgressRouter, Namespace, ResourceQuota, LimitRange, 
-    GPUAllocation, ServiceMeshControlPlane, NetworkPolicy, RouteException, 
-    HarborConfig, Operator, HelmDeployment, RegistryMirror, CustomResource, 
-    RobotAccount, NetworkConnection, UserAccess, SystemSyncStatus
+    Cluster, Tenant, EgressRouter, Namespace, ResourceQuota, LimitRange,
+    GPUAllocation, ServiceMeshControlPlane, NetworkPolicy, RouteException,
+    HarborConfig, Operator, HelmDeployment, RegistryMirror, CustomResource,
+    RobotAccount, NetworkConnection, UserAccess, SystemSyncStatus,
+    SyncAlreadyRunning
 )
+
+# The archive download must never block forever: a hung connection would hold the
+# sync lock until it goes stale, and the threaded HTTP path discards the traceback.
+# (connect timeout, read timeout) -- read applies per chunk, not to the whole body.
+GITLAB_TIMEOUT = (10, 60)
 
 class Command(BaseCommand):
     help = 'Fetches GitOps YAML files from GitLab (or local fallback) and safely upserts them into the Database'
@@ -24,6 +29,16 @@ class Command(BaseCommand):
             default='/projects/tools/customer-instances',
             help='Fallback local path to the GitOps cluster/tenant folders if GitLab is not configured',
         )
+        parser.add_argument(
+            '--lock-held',
+            action='store_true',
+            help=(
+                'Internal. Declares that the caller already claimed the sync lock via '
+                'SystemSyncStatus.try_acquire(). Used by TriggerSyncView, which must take '
+                'the lock synchronously so it can return an accurate 409 before spawning '
+                'its worker thread. Do not pass this by hand.'
+            ),
+        )
 
     def download_gitlab_repo(self, url, token, project_id, branch, ssl_verify=True):
         self.stdout.write(self.style.NOTICE(f"Connecting to GitLab: {url} (Project: {project_id}, Branch: {branch}, SSL Verify: {ssl_verify})..."))
@@ -34,7 +49,9 @@ class Command(BaseCommand):
         api_url = f"{url.rstrip('/')}/api/v4/projects/{project_id}/repository/archive.zip?sha={branch}"
         headers = {"PRIVATE-TOKEN": token}
         
-        response = requests.get(api_url, headers=headers, stream=True, verify=ssl_verify)
+        response = requests.get(
+            api_url, headers=headers, stream=True, verify=ssl_verify, timeout=GITLAB_TIMEOUT
+        )
         response.raise_for_status()
         
         temp_dir = tempfile.mkdtemp(prefix="gitops_sync_")
@@ -56,13 +73,19 @@ class Command(BaseCommand):
         return temp_dir, temp_dir
 
     def handle(self, *args, **options):
-        status = SystemSyncStatus.get_state()
-        status.is_syncing = True
-        status.last_message = "Fetching repository..."
-        status.save()
+        # Gate every caller, not just the HTTP one. TriggerSyncView checked
+        # is_syncing before spawning its thread, but the polling sidecar called
+        # this command directly -- so a manual sync plus an inbound pipeline meant
+        # two full syncs writing the same SQLite file at once.
+        if not options['lock_held'] and not SystemSyncStatus.try_acquire("Fetching repository..."):
+            message = "A sync is already in progress; skipping this run."
+            self.stdout.write(self.style.WARNING(message))
+            raise SyncAlreadyRunning(message)
 
         temp_cleanup_dir = None
         tenant_route_exceptions_found = set()
+        completed = False
+        final_message = "Sync failed"
 
         try:
             gitlab_url = os.environ.get('GITLAB_URL')
@@ -75,8 +98,7 @@ class Command(BaseCommand):
 
             if gitlab_url and gitlab_token and gitlab_project_id:
                 try:
-                    status.last_message = "Downloading GitLab archive..."
-                    status.save()
+                    SystemSyncStatus.set_message("Downloading GitLab archive...")
                     repo_path, temp_cleanup_dir = self.download_gitlab_repo(
                         gitlab_url, gitlab_token, gitlab_project_id, gitlab_branch, gitlab_ssl_verify
                     )
@@ -89,11 +111,7 @@ class Command(BaseCommand):
 
             if not os.path.exists(repo_path):
                 self.stdout.write(self.style.ERROR(f"Directory not found: {repo_path}. Aborting sync."))
-                if temp_cleanup_dir:
-                    shutil.rmtree(temp_cleanup_dir)
-                status.last_message = f"Directory not found: {repo_path}"
-                status.is_syncing = False
-                status.save()
+                final_message = f"Directory not found: {repo_path}"[:255]
                 return
 
             success_count = 0
@@ -103,9 +121,8 @@ class Command(BaseCommand):
             active_namespace_names = set()
             active_tenant_names = set()
             
-            status.last_message = "Parsing configuration files..."
-            status.save()
-            
+            SystemSyncStatus.set_message("Parsing configuration files...")
+
             for root, dirs, files in os.walk(repo_path):
                 dirs[:] = [d for d in dirs if not d.startswith('.git')]
                 for file in files:
@@ -561,24 +578,21 @@ class Command(BaseCommand):
             if deleted_crs[0] > 0 or deleted_helms[0] > 0 or deleted_namespaces[0] > 0 or deleted_tenants[0] > 0:
                 self.stdout.write(self.style.NOTICE(f"Pruned stale records: {deleted_crs[0]} CRs, {deleted_helms[0]} Charts, {deleted_namespaces[0]} Namespaces, {deleted_tenants[0]} Tenants."))
 
-            if temp_cleanup_dir and os.path.exists(temp_cleanup_dir):
-                shutil.rmtree(temp_cleanup_dir)
-                self.stdout.write(self.style.NOTICE("Cleaned up temporary GitLab repository files."))
-
-            status.last_sync_time = timezone.now()
-            status.last_message = "Ready"
-            status.is_syncing = False
-            status.save()
-
+            completed = True
+            final_message = "Ready"
             self.stdout.write(self.style.SUCCESS(f"✅ GitOps Sync Complete! Safely updated database with configurations from {success_count} namespaces."))
 
         except Exception as e:
-            status.last_message = f"Sync Error: {str(e)}"
-            status.is_syncing = False
-            status.save()
-            
-            if 'temp_cleanup_dir' in locals() and temp_cleanup_dir and os.path.exists(temp_cleanup_dir):
-                shutil.rmtree(temp_cleanup_dir)
-                
+            final_message = f"Sync Error: {str(e)}"[:255]
             self.stdout.write(self.style.ERROR(f'Failed to sync: {str(e)}'))
-            raise e
+            raise
+
+        finally:
+            # Single cleanup/release path: whatever happens above -- success,
+            # early return, or exception -- the temp dir goes away and the lock
+            # is dropped. Previously an unexpected failure could leave
+            # is_syncing=True forever, and TriggerSyncView swallows the traceback.
+            if temp_cleanup_dir and os.path.exists(temp_cleanup_dir):
+                shutil.rmtree(temp_cleanup_dir, ignore_errors=True)
+                self.stdout.write(self.style.NOTICE("Cleaned up temporary GitLab repository files."))
+            SystemSyncStatus.release(final_message, completed=completed)

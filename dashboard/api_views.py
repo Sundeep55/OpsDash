@@ -1,6 +1,6 @@
 import collections
+import logging
 import threading
-from datetime import date
 from rest_framework import viewsets, generics, serializers
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -19,8 +19,11 @@ from .models import (
     ResourceQuota, LimitRange, GPUAllocation,
     ServiceMeshControlPlane, NetworkPolicy, RouteException, HarborConfig,
     Operator, HelmDeployment, RegistryMirror, CustomResource,
-    RobotAccount, NetworkConnection, UserAccess, SystemSyncStatus
+    RobotAccount, NetworkConnection, UserAccess, SystemSyncStatus,
+    SyncAlreadyRunning
 )
+
+logger = logging.getLogger(__name__)
 
 # --- IMPORT SERIALIZERS ---
 from .serializers import (
@@ -263,9 +266,15 @@ class GlobalAnalyticsView(APIView):
 
 def run_sync_task():
     try:
-        call_command('sync_gitops')
+        # The view already claimed the lock; sync_gitops must not try to re-take it.
+        call_command('sync_gitops', lock_held=True)
+    except SyncAlreadyRunning:
+        logger.info("Manual sync skipped: another sync already holds the lock.")
     except Exception:
-        pass 
+        # sync_gitops releases the lock in its own finally block; this only needs
+        # to make sure the failure is visible. It used to be a bare `pass`, so a
+        # failing background sync left no trace anywhere.
+        logger.exception("Background GitOps sync failed")
 
 class SyncStatusView(generics.GenericAPIView):
     serializer_class = serializers.Serializer
@@ -284,15 +293,14 @@ class TriggerSyncView(generics.GenericAPIView):
     
     @extend_schema(request=None, responses={202: OpenApiTypes.OBJECT, 409: OpenApiTypes.OBJECT})
     def post(self, request):
-        status = SystemSyncStatus.get_state()
-        if status.is_syncing:
+        # Claim the lock here rather than check-then-set, so two clicks landing on
+        # two gunicorn workers cannot both spawn a sync thread. sync_gitops itself
+        # re-acquires and would refuse the loser anyway, but taking it up front
+        # keeps the 409 accurate instead of returning 202 for a sync that no-ops.
+        if not SystemSyncStatus.try_acquire("Starting manual sync..."):
             return Response({"status": "already_running", "message": "A sync is already in progress."}, status=409)
-            
-        status.is_syncing = True
-        status.last_message = "Starting manual sync..."
-        status.save()
-        
-        thread = threading.Thread(target=run_sync_task)
+
+        thread = threading.Thread(target=run_sync_task, daemon=True)
         thread.start()
         return Response({"status": "success", "message": "GitOps Sync started."}, status=202)
 

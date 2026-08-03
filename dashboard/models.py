@@ -1,4 +1,18 @@
+from datetime import timedelta
+
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
+
+# A sync that has held the lock longer than this is assumed dead (OOM-killed,
+# container restarted, network wedge) and may be claimed by the next caller.
+# Comfortably above a worst-case full sync; tune if the repo grows a lot.
+SYNC_STALE_AFTER = timedelta(minutes=30)
+
+
+class SyncAlreadyRunning(RuntimeError):
+    """Raised by sync_gitops when another sync already holds the lock."""
+
 
 class Cluster(models.Model):
     name = models.CharField(max_length=255, primary_key=True)
@@ -155,8 +169,43 @@ class SystemSyncStatus(models.Model):
     is_syncing = models.BooleanField(default=False)
     last_sync_time = models.DateTimeField(null=True, blank=True)
     last_message = models.CharField(max_length=255, default="Ready")
-    
+    sync_started_at = models.DateTimeField(null=True, blank=True)
+
     @classmethod
     def get_state(cls):
         obj, _ = cls.objects.get_or_create(id=1)
         return obj
+
+    @classmethod
+    def try_acquire(cls, message="Starting sync..."):
+        """Atomically claim the sync lock. Returns True if this caller won it.
+
+        Written as a single conditional UPDATE rather than read-then-write: the
+        deployment runs 3 gunicorn workers plus a sidecar container, so a
+        check-then-set leaves a window where two callers both see is_syncing=False
+        and both start writing the same SQLite file.
+
+        A lock older than SYNC_STALE_AFTER is treated as abandoned, so a crashed
+        sync cannot wedge is_syncing=True forever.
+        """
+        cls.get_state()  # ensure the singleton row exists
+        now = timezone.now()
+        claimed = cls.objects.filter(id=1).filter(
+            Q(is_syncing=False)
+            | Q(sync_started_at__isnull=True)
+            | Q(sync_started_at__lt=now - SYNC_STALE_AFTER)
+        ).update(is_syncing=True, sync_started_at=now, last_message=message)
+        return claimed == 1
+
+    @classmethod
+    def release(cls, message, completed=False):
+        """Drop the lock. Only a completed run advances last_sync_time."""
+        fields = {"is_syncing": False, "sync_started_at": None, "last_message": message}
+        if completed:
+            fields["last_sync_time"] = timezone.now()
+        cls.objects.filter(id=1).update(**fields)
+
+    @classmethod
+    def set_message(cls, message):
+        """Progress update. Targeted UPDATE so it cannot clobber other columns."""
+        cls.objects.filter(id=1).update(last_message=message[:255])
