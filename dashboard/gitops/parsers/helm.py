@@ -10,7 +10,7 @@ def parse_chart(payload, ctx):
     if ctx.namespace is None:
         return
 
-    for dep in payload.get('dependencies', []):
+    for dep in payload.get('dependencies') or []:
         deployment, _ = HelmDeployment.objects.update_or_create(
             namespace=ctx.namespace,
             chart_name=dep.get('name', 'Unknown'),

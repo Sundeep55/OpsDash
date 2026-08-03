@@ -33,9 +33,9 @@ def parse_tenant_metadata(payload, ctx):
 
     tenant.save()
 
-    _apply_active_namespaces(payload.get('active_namespaces', []), ctx)
-    _apply_decommissioned_namespaces(payload.get('decommissioned_namespaces', []), ctx)
-    _apply_registry_mirrors(payload.get('active_registry_mirrors', []), ctx)
+    _apply_active_namespaces(payload.get('active_namespaces') or [], ctx)
+    _apply_decommissioned_namespaces(payload.get('decommissioned_namespaces') or [], ctx)
+    _apply_registry_mirrors(payload.get('active_registry_mirrors') or [], ctx)
 
 
 def _get_or_create_namespace(name, ctx):

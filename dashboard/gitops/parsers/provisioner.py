@@ -93,14 +93,14 @@ def _apply_egress(egress, ctx):
     if siglum:
         namespace.siglum = siglum
 
-    for resource in egress.get('egressIPResources', []):
+    for resource in egress.get('egressIPResources') or []:
         name = resource.get('name')
         if not name:
             continue
         router, _ = EgressRouter.objects.get_or_create(
             name=name, defaults={'cluster': ctx.cluster}
         )
-        router.egress_ips = resource.get('egressIPs', [])
+        router.egress_ips = resource.get('egressIPs') or []
         router.provider_namespace = namespace
         router.save()
 
@@ -182,12 +182,12 @@ def _apply_network_policy(prov, ctx):
     # Replaced wholesale: connections have no stable identity to reconcile on.
     NetworkConnection.objects.filter(namespace=ctx.namespace).delete()
     for conn in flows.get('connections') or []:
-        destinations = conn.get('to', [])
+        destinations = conn.get('to') or []
         NetworkConnection.objects.create(
             namespace=ctx.namespace,
             from_pod=conn.get('from', ''),
             to_destinations=destinations if isinstance(destinations, list) else [destinations],
-            flows=conn.get('flows', []),
+            flows=conn.get('flows') or [],
         )
 
 
@@ -271,7 +271,7 @@ def _apply_harbor(prov, ctx):
                 'storage_quota_gb': harbor.get('storageQuota', 0),
                 'vulnerability_scanning': harbor.get('vulnerabilityScanning', False),
                 'auto_sbom_generation': harbor.get('autoSbomGeneration', False),
-                'cve_allowlist': harbor.get('cveAllowlist', []),
+                'cve_allowlist': harbor.get('cveAllowlist') or [],
             },
         )
     else:
@@ -290,7 +290,7 @@ def _apply_robot_accounts(prov, ctx):
             namespace=ctx.namespace,
             name_suffix=account.get('nameSuffix', ''),
             is_default=account.get('default', False),
-            permissions=account.get('permissions', []),
+            permissions=account.get('permissions') or [],
         )
 
 
@@ -333,8 +333,8 @@ def _apply_service_mesh(mesh, ctx):
 # ----------------------------------------------------------- registry-config
 
 def _apply_registry_config(registry, ctx):
-    registries = {r.get('name'): r for r in registry.get('registries', [])}
-    replications = registry.get('dockerRegistryReplications', [])
+    registries = {r.get('name'): r for r in registry.get('registries') or []}
+    replications = registry.get('dockerRegistryReplications') or []
 
     if not (replications or registries):
         return
@@ -348,7 +348,7 @@ def _apply_registry_config(registry, ctx):
         # Filters are a list of single-key dicts, one per filter type.
         image_filter = ""
         tag_filter = ""
-        for entry in replication.get('filters', []):
+        for entry in replication.get('filters') or []:
             if 'name' in entry:
                 image_filter = entry['name']
             if 'tag' in entry:
