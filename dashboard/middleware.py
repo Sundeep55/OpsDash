@@ -11,6 +11,11 @@ from django.conf import settings
 # 30-minute window.
 ACTIVITY_REFRESH_INTERVAL = 60
 
+# The UI polls this on a timer. Refreshing the idle clock from it would keep a
+# session alive forever on an unattended tab. Both the versioned path and the
+# legacy alias resolve to the same view, so both must be listed.
+SYNC_STATUS_PATHS = ('/api/v2/sync/status/', '/api/sync/status/')
+
 
 class AutoLogoutMiddleware(MiddlewareMixin):
     def process_request(self, request):
@@ -18,7 +23,7 @@ class AutoLogoutMiddleware(MiddlewareMixin):
             return
 
         # Skip session reset for background UI polling to prevent infinite sessions
-        if request.path.startswith('/api/sync/status/'):
+        if request.path.startswith(SYNC_STATUS_PATHS):
             return
 
         current_time = time.time()

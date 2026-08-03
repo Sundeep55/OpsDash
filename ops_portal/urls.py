@@ -45,9 +45,14 @@ urlpatterns = [
     path('api/v2/network/service-mesh/', api_views.NetworkServiceMeshApiView.as_view(), name='api-network-servicemesh'),
 
     # --- UI SYNC & ANALYTICS ENDPOINTS ---
-    path('api/sync/', api_views.TriggerSyncView.as_view(), name='api-sync'),
-    path('api/sync/status/', api_views.SyncStatusView.as_view(), name='api-sync-status'),
+    path('api/v2/sync/', api_views.TriggerSyncView.as_view(), name='api-sync'),
+    path('api/v2/sync/status/', api_views.SyncStatusView.as_view(), name='api-sync-status'),
     path('api/v2/analytics/', api_views.GlobalAnalyticsView.as_view(), name='api-analytics'),
+
+    # Unversioned aliases, kept live because app.js still calls them and the
+    # frontend is a later pass. Drop once it targets the v2 paths above.
+    path('api/sync/', api_views.LegacyTriggerSyncView.as_view(), name='api-sync-legacy'),
+    path('api/sync/status/', api_views.LegacySyncStatusView.as_view(), name='api-sync-status-legacy'),
     
     # --- SWAGGER API DOCS ---
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
