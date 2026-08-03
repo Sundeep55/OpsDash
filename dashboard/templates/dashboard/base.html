@@ -4,8 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ops UI - Control Plane</title>
+    <title>{% block title %}{{ portal_title }}{% endblock %}</title>
     <link href="{% static 'css/tailwind.css' %}" rel="stylesheet">
+    {# Utilities the vendored Tailwind build is missing; see `manage.py build_css`. #}
+    <link href="{% static 'css/utilities.generated.css' %}" rel="stylesheet">
     <script src="{% static 'js/vue.global.js' %}"></script>
 </head>
 <body>

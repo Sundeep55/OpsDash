@@ -41,6 +41,11 @@ RUN mkdir -p /app/staticfiles && \
 # Switch to the standard non-root user for execution
 USER 1001
 
+# Fail the build if a template references a CSS class the stylesheet lacks.
+# Without this the class silently resolves to nothing and the element renders
+# unstyled at runtime -- see dashboard/management/commands/build_css.py.
+RUN python manage.py build_css --check
+
 # Bake the static files directly into the image (Now runs safely as non-root!)
 RUN python manage.py collectstatic --noinput
 

@@ -10,3 +10,6 @@ db.sqlite3
 
 .venv/
 venv/
+
+# Local dev-server launch config (paths are machine-specific).
+.claude/
