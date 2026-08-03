@@ -1,7 +1,8 @@
 from datetime import timedelta
 
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, Value
+from django.db.models.functions import Coalesce, NullIf
 from django.utils import timezone
 
 # A sync that has held the lock longer than this is assumed dead (OOM-killed,
@@ -59,6 +60,35 @@ class Namespace(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def effective_siglum(self):
+        """The siglum this namespace actually belongs to.
+
+        A namespace can carry its own siglum, set from requiredLabels in the
+        provisioner values; otherwise it inherits its tenant's. Every read path
+        must resolve it through here. The namespace detail page used to apply
+        the override while the dashboard org tree read ns.tenant.siglum
+        directly, so an overridden namespace rendered correctly on one screen
+        and wrong on the other.
+
+        Callers should select_related('tenant') to avoid a query per row.
+        """
+        return self.siglum or self.tenant.siglum
+
+
+def effective_siglum_expr(prefix=''):
+    """SQL equivalent of Namespace.effective_siglum, for annotate()/filter().
+
+    Lives next to the property so the two cannot drift. NullIf mirrors the
+    property's `or`, which treats an empty string as absent -- plain Coalesce
+    would return '' and shadow the tenant's siglum.
+    """
+    return Coalesce(
+        NullIf(f'{prefix}siglum', Value('')),
+        NullIf(f'{prefix}tenant__siglum', Value('')),
+    )
+
 
 # --- Compute & Resource Constraints (One-to-One) ---
 

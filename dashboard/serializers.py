@@ -176,8 +176,7 @@ class NamespaceSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_siglum(self, obj):
-        # Fallback Logic: Try Namespace siglum first, fallback to Tenant siglum
-        return getattr(obj, 'siglum', None) or getattr(obj.tenant, 'siglum', None)
+        return obj.effective_siglum
 
     @extend_schema_field(OpenApiTypes.OBJECT)
     def get_assigned_egress(self, obj):

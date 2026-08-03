@@ -20,7 +20,7 @@ from .models import (
     ServiceMeshControlPlane, NetworkPolicy, RouteException, HarborConfig,
     Operator, HelmDeployment, RegistryMirror, CustomResource,
     RobotAccount, NetworkConnection, UserAccess, SystemSyncStatus,
-    SyncAlreadyRunning
+    SyncAlreadyRunning, effective_siglum_expr
 )
 
 logger = logging.getLogger(__name__)
@@ -204,7 +204,7 @@ class GlobalAnalyticsView(APIView):
                 analytics["chart_usage"][key] += 1
                 cr["charts"][key] += 1
 
-            siglum = ns.tenant.siglum
+            siglum = ns.effective_siglum
             if siglum and siglum != "N/A":
                 s_str = siglum.upper().strip()
                 start_idx = 2 if len(s_str) >= 2 else 1
@@ -364,7 +364,12 @@ class SiglumListView(APIView):
         search_query = request.query_params.get('search', '').strip()
         cluster = request.query_params.get('cluster', 'All')
 
-        ns_qs = Namespace.objects.select_related('tenant', 'cluster').exclude(tenant__siglum__isnull=True).exclude(tenant__siglum__exact='')
+        # Resolve the namespace's own siglum before its tenant's, so a namespace
+        # with an override is listed and searchable under the siglum it actually
+        # belongs to rather than its tenant's.
+        ns_qs = Namespace.objects.select_related('tenant', 'cluster') \
+                                 .annotate(eff_siglum=effective_siglum_expr()) \
+                                 .exclude(eff_siglum__isnull=True)
         t_qs = Tenant.objects.select_related('cluster').exclude(siglum__isnull=True).exclude(siglum__exact='')
 
         if cluster != 'All':
@@ -372,10 +377,10 @@ class SiglumListView(APIView):
             t_qs = t_qs.filter(cluster__name=cluster)
 
         if search_query:
-            ns_qs = ns_qs.filter(tenant__siglum__icontains=search_query)
+            ns_qs = ns_qs.filter(eff_siglum__icontains=search_query)
             t_qs = t_qs.filter(siglum__icontains=search_query)
-            
-        unique_siglums = set(ns_qs.values_list('tenant__siglum', flat=True)) | set(t_qs.values_list('siglum', flat=True))
+
+        unique_siglums = set(ns_qs.values_list('eff_siglum', flat=True)) | set(t_qs.values_list('siglum', flat=True))
 
         return Response({
             "siglums": sorted(list(unique_siglums)),
@@ -437,7 +442,9 @@ class NamespaceViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_class = NamespaceFilter
-    search_fields = ['name', 'tenant__name', 'tenant__siglum']
+    # 'siglum' as well as 'tenant__siglum': searching for an overridden siglum
+    # must find the namespaces that actually carry it.
+    search_fields = ['name', 'tenant__name', 'siglum', 'tenant__siglum']
     lookup_field = 'name'
 
 # =====================================================================
@@ -495,7 +502,7 @@ class FinOpsQuotaApiView(APIView):
                 "namespace": ns.name,
                 "tenant": ns.tenant.name,
                 "cost_center": ns.tenant.cost_center or "N/A",
-                "siglum": ns.tenant.siglum or "N/A",
+                "siglum": ns.effective_siglum or "N/A",
                 "cpu_requests": parse_cpu(rq.requests_cpu) if rq else 0,
                 "cpu_limits": parse_cpu(rq.limits_cpu) if rq else 0,
                 "mem_requests_gb": parse_mem_gi(rq.requests_memory) if rq else 0,
