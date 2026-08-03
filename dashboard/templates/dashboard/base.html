@@ -8,7 +8,16 @@
     <link href="{% static 'css/tailwind.css' %}" rel="stylesheet">
     {# Utilities the vendored Tailwind build is missing; see `manage.py build_css`. #}
     <link href="{% static 'css/utilities.generated.css' %}" rel="stylesheet">
-    <script src="{% static 'js/vue.global.js' %}"></script>
+    {% comment %}
+    The development build is ~3.5x larger and carries runtime warnings the
+    browser console shows to end users. Both are vendored so neither the image
+    build nor the runtime needs network access.
+    {% endcomment %}
+    {% if debug %}
+        <script src="{% static 'js/vue.global.js' %}"></script>
+    {% else %}
+        <script src="{% static 'js/vue.global.prod.js' %}"></script>
+    {% endif %}
 </head>
 <body>
     {% block content %}{% endblock %}

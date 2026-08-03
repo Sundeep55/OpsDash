@@ -32,7 +32,7 @@ createApp({
         const search = ref({ 
             tenant: '', tenantStatus: 'active', tenantCluster: 'All',
             namespace: '', namespaceStatus: 'active', namespaceCluster: 'All',
-            nsFeatures: { dev: false, prod: false, devspace: false, cso: false, flows: false, dns: false, proxy: false, templates: false, routeException: false, cveException: false, mirror: false, operator: false },
+            nsFeatures: { dev: false, prod: false, devspace: false, cso: false, flows: false, dns: false, proxy: false, templates: false, routeException: false, cveException: false, mirror: false },
             user: '', siglum: '', request: '' 
         });
 
@@ -174,7 +174,7 @@ createApp({
 
         const checkSyncStatus = async (isManualTrigger = false) => {
             try {
-                const res = await fetch('/api/sync/status/');
+                const res = await fetch('/api/v2/sync/status/');
 
                 if (res.status === 401 || res.status === 403) {
                     console.warn("Session expired. Redirecting to login...");
@@ -217,7 +217,7 @@ createApp({
             if (isSyncing.value) return; 
             isSyncing.value = true; syncStatus.value = "Triggering manual sync...";
             try {
-                const res = await fetch('/api/sync/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') } });
+                const res = await fetch('/api/v2/sync/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') } });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 if (!pollInterval) pollInterval = setInterval(() => checkSyncStatus(true), 2000);
             } catch (err) {
@@ -289,8 +289,8 @@ createApp({
         });
 
         const activeLifecycles = computed(() => {
-            if (!globalAnalytics.value) return { dev: 0, prod: 0, devspace: 0, total: 0 };
-            const l = globalAnalytics.value.lifecycles; return { ...l, total: l.dev + l.prod + l.devspace };
+            return globalAnalytics.value?.lifecycles
+                ?? { dev: 0, prod: 0, devspace: 0, egress: 0, unassigned: 0 };
         });
 
         const renderedSiglumTree = computed(() => {
@@ -298,15 +298,22 @@ createApp({
             return buildSiglumTreeHtml(globalAnalytics.value.siglum_tree);
         });
 
+        // Derives a new object rather than writing back into globalAnalytics.
+        // It used to assign data.renderedTree onto the reactive source, so a
+        // computed getter mutated the state it depended on -- which schedules
+        // another evaluation of itself on every read.
         const perClusterMetrics = computed(() => {
-            if (!globalAnalytics.value?.cluster_resources) return {};
-            const metrics = globalAnalytics.value.cluster_resources;
-            for (const [clusterName, data] of Object.entries(metrics)) {
-                data.cpu_req = data.cpu_req || 0; data.cpu_limit = data.cpu_limit || 0;
-                data.mem_req = data.mem_req || 0; data.mem_limit = data.mem_limit || 0;
-                if (data.siglum_tree) data.renderedTree = buildSiglumTreeHtml(data.siglum_tree);
-            }
-            return metrics;
+            const source = globalAnalytics.value?.cluster_resources;
+            if (!source) return {};
+
+            return Object.fromEntries(Object.entries(source).map(([name, data]) => [name, {
+                ...data,
+                cpu_req: data.cpu_req || 0,
+                cpu_limit: data.cpu_limit || 0,
+                mem_req: data.mem_req || 0,
+                mem_limit: data.mem_limit || 0,
+                renderedTree: data.siglum_tree ? buildSiglumTreeHtml(data.siglum_tree) : '',
+            }]));
         });
 
         const allSiglumsList = computed(() => {
@@ -353,14 +360,20 @@ createApp({
                     search.value.namespace = ''; 
                     search.value.namespaceStatus = 'active'; 
                     search.value.namespaceCluster = 'All'; 
-                    search.value.nsFeatures = { dev: false, prod: false, devspace: false, cso: false, flows: false, dns: false, proxy: false, templates: false, routeException: false, cveException: false, mirror: false, operator: false }; 
+                    search.value.nsFeatures = { dev: false, prod: false, devspace: false, cso: false, flows: false, dns: false, proxy: false, templates: false, routeException: false, cveException: false, mirror: false }; 
                 }
                 
                 if (tabId === 'users') { selected.value.user = null; search.value.user = ''; }
                 if (tabId === 'siglums') { search.value.siglum = ''; }
                 if (tabId === 'requests') { search.value.request = ''; }
                 if (tabId === 'dashboard') { dashboardDetail.value = null; }
-            } else { activeTab.value = tabId; }
+            } else {
+                activeTab.value = tabId;
+                // Show the tab's list, not whatever detail was open last time.
+                // Without this, leaving a namespace and coming back re-opened
+                // the previous namespace -- with data that may since be stale.
+                selected.value[tabId.replace(/s$/, '')] = null;
+            }
         };
 
         const selectItem = async (type, id) => {
