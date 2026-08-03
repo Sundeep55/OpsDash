@@ -114,6 +114,17 @@ class RouteExceptionFlatSerializer(serializers.ModelSerializer):
         model = RouteException
         fields = ['namespace', 'tenant', 'cluster', 'is_active', 'request_id', 'granted_at']
 
+class SecurityPostureFlatSerializer(serializers.Serializer):
+    namespace = serializers.CharField()
+    cluster = serializers.CharField()
+    tenant = serializers.CharField()
+    harbor_enabled = serializers.BooleanField()
+    vulnerability_scanning = serializers.BooleanField()
+    auto_sbom_generation = serializers.BooleanField()
+    cve_allowlist_count = serializers.IntegerField()
+    s3_connection_enabled = serializers.BooleanField()
+
+
 class RobotAccountFlatSerializer(serializers.Serializer):
     namespace = serializers.CharField()
     account_name = serializers.CharField()

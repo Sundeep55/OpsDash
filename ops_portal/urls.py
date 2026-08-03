@@ -37,6 +37,7 @@ urlpatterns = [
     # NEW: Updated URL and API View Name
     path('api/v2/security/route-exceptions/', api_views.SecurityRouteExceptionApiView.as_view(), name='api-security-route-exceptions'),
     path('api/v2/security/robot-accounts/', api_views.SecurityRobotApiView.as_view(), name='api-security-robots'),
+    path('api/v2/security/namespace-posture/', api_views.SecurityPostureApiView.as_view(), name='api-security-posture'),
     
     path('api/v2/stack/helm-deployments/', api_views.StackHelmApiView.as_view(), name='api-stack-helm'),
     path('api/v2/stack/upstream-mirrors/', api_views.StackMirrorApiView.as_view(), name='api-stack-mirrors'),

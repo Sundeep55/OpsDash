@@ -31,7 +31,8 @@ from .serializers import (
     NamespaceListSerializer, NamespaceDetailSerializer, UserListSerializer,
     PlatformClusterMetricsSerializer, GPUAllocationFlatSerializer, FinOpsQuotaFlatSerializer,
     FinOpsUnattributedSerializer, DevSpaceFlatSerializer, ProjectRosterSerializer,
-    RouteExceptionFlatSerializer, RobotAccountFlatSerializer, HelmDeploymentFlatSerializer,
+    RouteExceptionFlatSerializer, RobotAccountFlatSerializer, SecurityPostureFlatSerializer,
+    HelmDeploymentFlatSerializer,
     RegistryMirrorFlatSerializer, EgressRoutingFlatSerializer, ServiceMeshFlatSerializer
 )
 
@@ -608,6 +609,45 @@ class SecurityRouteExceptionApiView(generics.ListAPIView):
         if cluster and cluster != 'All':
             qs = qs.filter(namespace__cluster__name=cluster)
         return qs.order_by('-granted_at')
+
+class SecurityPostureApiView(APIView):
+    pagination_class = None
+
+    @extend_schema(
+        responses=SecurityPostureFlatSerializer(many=True),
+        description=(
+            "Per-namespace security posture: Harbor image-scanning configuration and "
+            "outbound S3 connectivity, joined onto the namespace's cluster and tenant.\n\n"
+            "`vulnerability_scanning` and `auto_sbom_generation` are only meaningful "
+            "where `harbor_enabled` is true; they retain their last synced value "
+            "otherwise. `cve_allowlist_count` is the number of CVEs explicitly "
+            "excepted for the namespace -- any value above zero means image scanning "
+            "will not block those CVEs.\n\n"
+            "Unpaginated: one call returns every namespace."
+        ),
+    )
+    def get(self, request):
+        namespaces = Namespace.objects.select_related(
+            'cluster', 'tenant', 'harbor_config', 'network_policy'
+        ).order_by('name')
+
+        data = []
+        for ns in namespaces:
+            h = getattr(ns, 'harbor_config', None)
+            np = getattr(ns, 'network_policy', None)
+            allowlist = (h.cve_allowlist if h else None) or []
+            data.append({
+                "namespace": ns.name,
+                "cluster": ns.cluster.name,
+                "tenant": ns.tenant.name,
+                "harbor_enabled": bool(h and h.is_enabled),
+                "vulnerability_scanning": bool(h and h.vulnerability_scanning),
+                "auto_sbom_generation": bool(h and h.auto_sbom_generation),
+                "cve_allowlist_count": len(allowlist) if isinstance(allowlist, list) else 0,
+                "s3_connection_enabled": bool(np and np.s3_connection_enabled),
+            })
+        return Response(data)
+
 
 class SecurityRobotApiView(APIView):
     @extend_schema(responses=RobotAccountFlatSerializer(many=True))
