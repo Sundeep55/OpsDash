@@ -111,7 +111,20 @@ STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 # a collected asset. That file now lives in assets/css/ and is not collected;
 # see the comment at the top of it. base.html only ever loaded the compiled
 # static/css/tailwind.css, which has no imports or url() references.
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+#
+# Must be STORAGES, not the old STATICFILES_STORAGE: that setting was removed in
+# Django 5.1 and is now ignored *silently* -- no error, no warning, `check` and
+# `check --deploy` both pass, and static files quietly fall back to unhashed and
+# uncompressed. Django does not merge this dict with its defaults, so the
+# unused-but-required "default" entry has to be spelled out too.
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 
 # =====================================================================

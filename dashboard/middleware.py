@@ -1,5 +1,4 @@
 import time
-from django.utils.deprecation import MiddlewareMixin
 from django.contrib.auth import logout
 from django.conf import settings
 
@@ -17,8 +16,25 @@ ACTIVITY_REFRESH_INTERVAL = 60
 SYNC_STATUS_PATHS = ('/api/v2/sync/status/', '/api/sync/status/')
 
 
-class AutoLogoutMiddleware(MiddlewareMixin):
-    def process_request(self, request):
+class AutoLogoutMiddleware:
+    """Log out sessions idle for longer than SESSION_COOKIE_AGE.
+
+    Plain callable rather than MiddlewareMixin: the mixin exists only to adapt
+    pre-1.10 middleware and brings no benefit here.
+
+    Note this does not affect API clients authenticating with Basic auth. It
+    runs before DRF authentication, so for a request with no session cookie
+    request.user is AnonymousUser and it returns immediately.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        self.check_idle(request)
+        return self.get_response(request)
+
+    def check_idle(self, request):
         if not request.user.is_authenticated:
             return
 
