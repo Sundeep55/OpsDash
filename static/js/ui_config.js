@@ -1,8 +1,11 @@
 /**
- * Global UI Configuration File
- * Edit this file to add new icons, tabs, or static mappings without touching app.js logic.
+ * Static UI configuration.
+ *
+ * Tabs and operator icon mappings live here so they can be changed without
+ * touching application logic. Imported as a module -- it no longer defines a
+ * global, so nothing can read it by accident.
  */
-const UI_CONFIG = {
+export const UI_CONFIG = {
     // 1. Navigation Tabs Definition
     tabs: [
         { id: 'dashboard', label: 'Dashboard' },

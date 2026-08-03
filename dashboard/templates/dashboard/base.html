@@ -8,6 +8,8 @@
     <link href="{% static 'css/tailwind.css' %}" rel="stylesheet">
     {# Utilities the vendored Tailwind build is missing; see `manage.py build_css`. #}
     <link href="{% static 'css/utilities.generated.css' %}" rel="stylesheet">
+    {# Hand-written component classes; see the header of the file. #}
+    <link href="{% static 'css/components.css' %}" rel="stylesheet">
     {% comment %}
     The development build is ~3.5x larger and carries runtime warnings the
     browser console shows to end users. Both are vendored so neither the image
@@ -21,6 +23,11 @@
 </head>
 <body>
     {% block content %}{% endblock %}
-    <script src="{% static 'js/app.js' %}"></script>
+    {% comment %}
+    ES module, so app.js can import from lib/, composables/ and components/
+    without a bundler. Browsers resolve the graph natively; the airgapped build
+    stays a plain file copy.
+    {% endcomment %}
+    <script type="module" src="{% static 'js/app.js' %}"></script>
 </body>
 </html>

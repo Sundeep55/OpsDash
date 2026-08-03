@@ -208,8 +208,19 @@ class Command(BaseCommand):
         used = extract_classes(sources)
         compiler = Compiler(tokens)
 
+        # Component classes are provided by hand, not generated: those compiled
+        # into the vendored build from assets/css/input.css, plus static/css/
+        # components.css which needs no build at all.
+        provided = set()
+        for stylesheet in (root / 'assets' / 'css' / 'input.css',
+                           root / 'static' / 'css' / 'components.css'):
+            if stylesheet.exists():
+                provided |= set(re.findall(r'\.([a-zA-Z][\w-]*)', stylesheet.read_text(encoding='utf-8')))
+
         rules, unsupported = [], {}
         for cls in sorted(used):
+            if cls in provided or cls.lstrip('!') in provided:
+                continue  # hand-written component class
             if f'.{escape(cls)} {{' in css or f'.{escape(cls)}{{' in css:
                 continue  # already provided by the vendored build
             rule = compiler.rule(cls)

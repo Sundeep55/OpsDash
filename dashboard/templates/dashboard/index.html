@@ -79,7 +79,10 @@
     </main>
 </div>
 
-<!-- INJECT THE CONFIGURATION FILE BEFORE APP.JS -->
-<script>const GIT_BROWSER_URL = "{{ git_browser_url|default:''|escapejs }}";</script>
-<script src="{% static 'js/ui_config.js' %}"></script>
+{% comment %}
+Server-side config for the app, as JSON rather than globals: json_script escapes
+correctly and the value cannot collide with anything else on the page.
+ui_config.js is no longer loaded here -- app.js imports it as a module.
+{% endcomment %}
+{{ portal_config|json_script:"portal-config" }}
 {% endblock %}

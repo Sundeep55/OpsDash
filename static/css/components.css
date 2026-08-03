@@ -1,0 +1,57 @@
+/* App-specific component classes.
+ *
+ * Plain hand-written CSS, deliberately not Tailwind. Three stylesheets load, in
+ * this order, each with a different job:
+ *
+ *   tailwind.css              vendored Tailwind build: design tokens, base,
+ *                             the component classes from assets/css/input.css,
+ *                             and the utilities that existed when it was built
+ *   utilities.generated.css   utilities that build were missing, regenerated
+ *                             from those tokens by `manage.py build_css`
+ *   components.css            this file
+ *
+ * Add here when a style is a *component* (a named thing with several
+ * declarations) rather than a utility. Adding a new component class to
+ * assets/css/input.css would need a real Tailwind build, which the airgapped
+ * pipeline cannot run -- this file needs no build at all.
+ *
+ * Use the design tokens from tailwind.css (var(--color-*), var(--spacing))
+ * rather than literal colours, so these stay consistent with the utilities.
+ */
+
+/* Keyboard focus ring. Tailwind's ring-* utilities are absent from the
+ * vendored build and are not mechanically regenerable, so this is the one
+ * definition every focusable control uses. :focus-visible keeps it off mouse
+ * clicks and on for keyboard navigation. */
+.focus-ring:focus {
+    outline: none;
+}
+.focus-ring:focus-visible {
+    outline: 2px solid var(--color-blue-500);
+    outline-offset: 2px;
+    border-radius: var(--radius-md);
+}
+
+/* Placeholder shown while a list or detail request is in flight. */
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--color-slate-100) 25%,
+        var(--color-slate-200) 37%,
+        var(--color-slate-100) 63%
+    );
+    background-size: 400% 100%;
+    animation: skeleton-shimmer 1.4s ease infinite;
+    border-radius: var(--radius-md);
+}
+
+@keyframes skeleton-shimmer {
+    0%   { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton {
+        animation: none;
+    }
+}
