@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 # --- IMPORT SERIALIZERS ---
 from .serializers import (
-    ClusterSerializer, TenantSerializer, TenantDetailSerializer, NamespaceSerializer, UserListSerializer,
+    ClusterSerializer, TenantSerializer, TenantDetailSerializer,
+    NamespaceListSerializer, NamespaceDetailSerializer, UserListSerializer,
     PlatformClusterMetricsSerializer, GPUAllocationFlatSerializer, FinOpsQuotaFlatSerializer,
     FinOpsUnattributedSerializer, DevSpaceFlatSerializer, ProjectRosterSerializer,
     RouteExceptionFlatSerializer, RobotAccountFlatSerializer, HelmDeploymentFlatSerializer,
@@ -367,9 +368,9 @@ class SiglumListView(APIView):
         # Resolve the namespace's own siglum before its tenant's, so a namespace
         # with an override is listed and searchable under the siglum it actually
         # belongs to rather than its tenant's.
-        ns_qs = Namespace.objects.select_related('tenant', 'cluster') \
-                                 .annotate(eff_siglum=effective_siglum_expr()) \
-                                 .exclude(eff_siglum__isnull=True)
+        ns_qs = NamespaceListSerializer.optimize(Namespace.objects.all()) \
+                                       .annotate(eff_siglum=effective_siglum_expr()) \
+                                       .exclude(eff_siglum__isnull=True)
         t_qs = Tenant.objects.select_related('cluster').exclude(siglum__isnull=True).exclude(siglum__exact='')
 
         if cluster != 'All':
@@ -384,7 +385,7 @@ class SiglumListView(APIView):
 
         return Response({
             "siglums": sorted(list(unique_siglums)),
-            "namespaces": NamespaceSerializer(ns_qs[:50], many=True).data,
+            "namespaces": NamespaceListSerializer(ns_qs[:50], many=True).data,
             "tenants": TenantSerializer(t_qs[:50], many=True).data
         })
 
@@ -430,15 +431,17 @@ class TenantViewSet(viewsets.ReadOnlyModelViewSet):
         return TenantSerializer
 
 class NamespaceViewSet(viewsets.ReadOnlyModelViewSet):
+    # Detail-shaped queryset. `list` narrows it in get_queryset() below, so the
+    # table view stops joining and prefetching relations it never renders.
     queryset = Namespace.objects.select_related(
-        'tenant', 'cluster', 'resource_quota', 'route_exception', 
+        'tenant', 'cluster', 'resource_quota', 'route_exception',
         'network_policy', 'egress_router', 'harbor_config', 'gpu_allocation'
     ).prefetch_related(
-        'operators', 'helm_deployments', 'registry_mirrors', 
+        'operators', 'helm_deployments', 'registry_mirrors',
         'network_connections', 'custom_resources', 'robot_accounts', 'user_accesses'
     ).order_by('name')
-    
-    serializer_class = NamespaceSerializer
+
+    serializer_class = NamespaceDetailSerializer
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_class = NamespaceFilter
@@ -446,6 +449,16 @@ class NamespaceViewSet(viewsets.ReadOnlyModelViewSet):
     # must find the namespaces that actually carry it.
     search_fields = ['name', 'tenant__name', 'siglum', 'tenant__siglum']
     lookup_field = 'name'
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return NamespaceListSerializer
+        return NamespaceDetailSerializer
+
+    def get_queryset(self):
+        if self.action == 'list':
+            return NamespaceListSerializer.optimize(Namespace.objects.all()).order_by('name')
+        return super().get_queryset()
 
 # =====================================================================
 # API AS A PRODUCT: SPECIALIZED FLAT ENDPOINTS
