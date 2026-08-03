@@ -3,13 +3,7 @@ from drf_spectacular.utils import extend_schema_field
 from drf_spectacular.types import OpenApiTypes
 from datetime import date
 from django.db.models import Prefetch
-from .models import (
-    Cluster, Tenant, EgressRouter, Namespace,
-    ResourceQuota, GPUAllocation,
-    ServiceMeshControlPlane, NetworkPolicy, RouteException, HarborConfig,
-    Operator, HelmDeployment, RegistryMirror, CustomResource,
-    RobotAccount, NetworkConnection, UserAccess
-)
+from .models import Cluster, Tenant, Namespace, RouteException, CustomResource
 
 class ClusterSerializer(serializers.ModelSerializer):
     class Meta:

@@ -8,8 +8,7 @@ import urllib3
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from dashboard.models import (
-    Cluster, Tenant, EgressRouter, Namespace, ResourceQuota,
-    GPUAllocation, ServiceMeshControlPlane, NetworkPolicy, RouteException,
+    Cluster, Tenant, EgressRouter, Namespace, ResourceQuota, ServiceMeshControlPlane, NetworkPolicy, RouteException,
     HarborConfig, Operator, HelmDeployment, RegistryMirror, CustomResource,
     RobotAccount, NetworkConnection, UserAccess, SystemSyncStatus,
     SyncAlreadyRunning

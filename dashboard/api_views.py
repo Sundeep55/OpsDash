@@ -9,18 +9,15 @@ from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters import rest_framework as filters
 from django.core.management import call_command
-from django.db.models import Count, Q, Sum, F
+from django.db.models import Count, Q, F
 from django.db.models.functions import Lower
-from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiTypes, extend_schema_view, OpenApiParameter
+from drf_spectacular.utils import extend_schema, OpenApiTypes, extend_schema_view, OpenApiParameter
 
 # --- IMPORT MODELS ---
 from .models import (
-    Cluster, Tenant, EgressRouter, Namespace,
-    ResourceQuota, GPUAllocation,
-    ServiceMeshControlPlane, NetworkPolicy, RouteException, HarborConfig,
-    Operator, HelmDeployment, RegistryMirror, CustomResource,
-    RobotAccount, NetworkConnection, UserAccess, SystemSyncStatus,
-    SyncAlreadyRunning, effective_siglum_expr
+    Cluster, Tenant, Namespace, GPUAllocation, ServiceMeshControlPlane,
+    RouteException, HelmDeployment, RegistryMirror, RobotAccount, UserAccess,
+    SystemSyncStatus, SyncAlreadyRunning, effective_siglum_expr
 )
 
 logger = logging.getLogger(__name__)

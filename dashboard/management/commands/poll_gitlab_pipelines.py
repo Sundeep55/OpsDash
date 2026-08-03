@@ -14,7 +14,6 @@ class Command(BaseCommand):
         gitlab_url = os.environ.get('GITLAB_URL')
         token = os.environ.get('GITLAB_TOKEN')
         project_id = os.environ.get('GITLAB_PROJECT_ID')
-        branch = os.environ.get('GITLAB_BRANCH', 'main')
         ssl_verify = os.environ.get('GITLAB_SSL_VERIFY', 'true').lower() == 'true'
         poll_interval = int(os.environ.get('POLL_INTERVAL_SECONDS', 60))
 
