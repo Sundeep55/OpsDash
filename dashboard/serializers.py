@@ -64,9 +64,13 @@ class PlatformClusterMetricsSerializer(serializers.Serializer):
 class GPUAllocationFlatSerializer(serializers.Serializer):
     cluster = serializers.CharField()
     namespace = serializers.CharField()
-    gpu_tier = serializers.CharField()
+    tenant = serializers.CharField()
     allocation_type = serializers.CharField()
     gpu_count = serializers.IntegerField()
+    limit_min = serializers.CharField(allow_null=True)
+    limit_max = serializers.CharField(allow_null=True)
+    limit_default = serializers.CharField(allow_null=True)
+    limit_default_request = serializers.CharField(allow_null=True)
 
 class FinOpsQuotaFlatSerializer(serializers.Serializer):
     namespace = serializers.CharField()
@@ -369,8 +373,22 @@ class NamespaceDetailSerializer(_NamespaceFieldsMixin, serializers.ModelSerializ
     @extend_schema_field(OpenApiTypes.OBJECT)
     def get_gpu(self, obj):
         g = getattr(obj, 'gpu_allocation', None)
-        if not g: return None
-        return {"tier": g.gpu_tier, "type": g.allocation_type, "count": g.gpu_count}
+        if not g:
+            return None
+        # 'tier' carries gpuConfig.type because that is the only descriptor the
+        # repo provides, and it is what the detail drawer renders as its primary
+        # label. The drawer's secondary 'gpu.type' line now has no source and
+        # should be dropped during the frontend pass.
+        return {
+            "tier": g.allocation_type,
+            "count": g.gpu_count,
+            "limits": {
+                "min": g.limit_min,
+                "max": g.limit_max,
+                "default": g.limit_default,
+                "defaultRequest": g.limit_default_request,
+            },
+        }
 
     @extend_schema_field({"type": "array", "items": {"type": "string"}})
     def get_owners(self, obj):

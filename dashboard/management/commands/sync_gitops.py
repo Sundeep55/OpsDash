@@ -8,7 +8,8 @@ import urllib3
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from dashboard.models import (
-    Cluster, Tenant, EgressRouter, Namespace, ResourceQuota, ServiceMeshControlPlane, NetworkPolicy, RouteException,
+    Cluster, Tenant, EgressRouter, Namespace, ResourceQuota, GPUAllocation,
+    ServiceMeshControlPlane, NetworkPolicy, RouteException,
     HarborConfig, Operator, HelmDeployment, RegistryMirror, CustomResource,
     RobotAccount, NetworkConnection, UserAccess, SystemSyncStatus,
     SyncAlreadyRunning
@@ -18,6 +19,17 @@ from dashboard.models import (
 # sync lock until it goes stale, and the threaded HTTP path discards the traceback.
 # (connect timeout, read timeout) -- read applies per chunk, not to the whole body.
 GITLAB_TIMEOUT = (10, 60)
+
+
+def _to_int(value, default=0):
+    """Coerce a YAML scalar to int. gpuConfig.gpuCount is quoted in the repo
+    ("3"), so a plain int() on the raw value is not safe."""
+    if value is None:
+        return default
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
 
 class Command(BaseCommand):
     help = 'Fetches GitOps YAML files from GitLab (or local fallback) and safely upserts them into the Database'
@@ -452,6 +464,23 @@ class Command(BaseCommand):
                                         )
                                     else:
                                         ResourceQuota.objects.filter(namespace=ns_obj).delete()
+
+                                    gpu_cfg = prov.get('gpuConfig') or {}
+                                    if gpu_cfg.get('enabled'):
+                                        gpu_lr = gpu_cfg.get('limitRange') or {}
+                                        GPUAllocation.objects.update_or_create(
+                                            namespace=ns_obj,
+                                            defaults={
+                                                'allocation_type': gpu_cfg.get('type'),
+                                                'gpu_count': _to_int(gpu_cfg.get('gpuCount')),
+                                                'limit_min': gpu_lr.get('min'),
+                                                'limit_max': gpu_lr.get('max'),
+                                                'limit_default': gpu_lr.get('default'),
+                                                'limit_default_request': gpu_lr.get('defaultRequest'),
+                                            }
+                                        )
+                                    else:
+                                        GPUAllocation.objects.filter(namespace=ns_obj).delete()
 
                                     harbor = prov.get('harborOnboardingConfig') or {}
                                     if harbor.get('enable'):

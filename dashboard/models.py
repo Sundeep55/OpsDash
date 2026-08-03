@@ -100,10 +100,26 @@ class ResourceQuota(models.Model):
     requests_storage = models.CharField(max_length=50, null=True, blank=True)
 
 class GPUAllocation(models.Model):
+    """A namespace's GPU request, from `namespace-provisioner.gpuConfig`.
+
+    Only exists for namespaces with gpuConfig.enabled true, matching how
+    ResourceQuota and HarborConfig are gated.
+
+    There is deliberately no `gpu_tier`: the model carried one but the GitOps
+    repo has no tier key. The only descriptor is gpuConfig.type ("full"), which
+    is an allocation mode, so it maps to allocation_type.
+    """
     namespace = models.OneToOneField(Namespace, on_delete=models.CASCADE, related_name='gpu_allocation')
-    gpu_tier = models.CharField(max_length=100)
     allocation_type = models.CharField(max_length=50, null=True, blank=True)
     gpu_count = models.IntegerField(default=0)
+
+    # gpuConfig.limitRange -- per-container GPU bounds. Kept as strings for the
+    # same reason ResourceQuota is: the repo quotes them ("0", "4") and we
+    # surface them verbatim rather than guessing at units.
+    limit_min = models.CharField(max_length=50, null=True, blank=True)
+    limit_max = models.CharField(max_length=50, null=True, blank=True)
+    limit_default = models.CharField(max_length=50, null=True, blank=True)
+    limit_default_request = models.CharField(max_length=50, null=True, blank=True)
 
 # --- Platform Services & Integrations (One-to-One) ---
 
