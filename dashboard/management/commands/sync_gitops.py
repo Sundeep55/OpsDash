@@ -6,6 +6,7 @@ import shutil
 import requests
 import urllib3
 from django.core.management.base import BaseCommand
+from django.db import transaction
 from dashboard.models import (
     Cluster, Tenant, EgressRouter, Namespace, ResourceQuota, LimitRange,
     GPUAllocation, ServiceMeshControlPlane, NetworkPolicy, RouteException,
@@ -202,370 +203,384 @@ class Command(BaseCommand):
                         continue
 
                     try:
-                        filename = file
+                        # Per-file, not per-sync. A single transaction around the
+                        # whole walk would hold SQLite's write lock for the entire
+                        # run; WAL keeps readers unblocked but writers still
+                        # serialise, and every authenticated request writes the
+                        # session row -- so one big transaction would stall every
+                        # page load until the busy timeout. Per file the lock is
+                        # held for milliseconds.
+                        #
+                        # This is also the granularity that actually matters: the
+                        # damaging failure is a torn namespace, e.g. UserAccess
+                        # rows deleted below and then not recreated. Whole-sync
+                        # atomicity buys little on top, since the DB is rebuildable
+                        # and the prune already runs only after the loop completes.
+                        with transaction.atomic():
+                            filename = file
                         
-                        if 'templates' in path_parts and ns_obj:
-                            for doc in yaml.safe_load_all(content):
-                                if doc and 'kind' in doc and 'metadata' in doc:
-                                    cr_obj, _ = CustomResource.objects.update_or_create(
-                                        namespace=ns_obj,
-                                        kind=doc['kind'],
-                                        name=doc['metadata'].get('name', 'unknown'),
-                                        defaults={'content': yaml.dump(doc, default_flow_style=False)}
-                                    )
-                                    active_cr_ids.add(cr_obj.id)
-                            continue
-
-                        parsed_yaml = yaml.safe_load(content)
-                        if not parsed_yaml:
-                            continue
-
-                        if filename == 'tenant-metadata.yaml':
-                            tenant_obj.siglum = parsed_yaml.get('siglum', tenant_obj.siglum)
-                            tenant_obj.cost_center = parsed_yaml.get('billing_code', parsed_yaml.get('wbs', tenant_obj.cost_center))
-                            tenant_obj.requester = parsed_yaml.get('requester', tenant_obj.requester)
-                            
-                            tenant_req = parsed_yaml.get('tenant_request_ticket', parsed_yaml.get('req_id', parsed_yaml.get('request_ticket')))
-                            if tenant_req:
-                                tenant_obj.request_ticket = tenant_req
-                                
-                            tenant_obj.save()
-                            
-                            for ns_dict in parsed_yaml.get('active_namespaces', []):
-                                ns_n = ns_dict.get('name')
-                                if ns_n:
-                                    n_obj, _ = Namespace.objects.get_or_create(name=ns_n, defaults={'tenant': tenant_obj, 'cluster': cluster_obj})
-                                    active_namespace_names.add(n_obj.name)
-                                    
-                                    ns_req = ns_dict.get('namespace_request_ticket', ns_dict.get('req_id', ns_dict.get('request_ticket')))
-                                    if ns_req:
-                                        n_obj.request_ticket = ns_req
-                                        
-                                    ns_lc = ns_dict.get('lifecycle')
-                                    if ns_lc:
-                                        n_obj.lifecycle = str(ns_lc).strip().lower()
-                                        
-                                    n_obj.is_decommissioned = False
-                                    n_obj.save()
-                                    
-                                    sec_exc = ns_dict.get('security_exception')
-                                    if sec_exc:
-                                        RouteException.objects.update_or_create(
-                                            namespace=n_obj,
-                                            defaults={
-                                                'is_active': True,
-                                                'request_id': sec_exc.get('request_ticket', ''),
-                                                'granted_at': sec_exc.get('granted_at')
-                                            }
+                            if 'templates' in path_parts and ns_obj:
+                                for doc in yaml.safe_load_all(content):
+                                    if doc and 'kind' in doc and 'metadata' in doc:
+                                        cr_obj, _ = CustomResource.objects.update_or_create(
+                                            namespace=ns_obj,
+                                            kind=doc['kind'],
+                                            name=doc['metadata'].get('name', 'unknown'),
+                                            defaults={'content': yaml.dump(doc, default_flow_style=False)}
                                         )
-                                        tenant_route_exceptions_found.add(n_obj.name)
-                            
-                            for ns_dict in parsed_yaml.get('decommissioned_namespaces', []):
-                                ns_n = ns_dict.get('name')
-                                if ns_n:
-                                    n_obj, _ = Namespace.objects.get_or_create(name=ns_n, defaults={'tenant': tenant_obj, 'cluster': cluster_obj})
-                                    active_namespace_names.add(n_obj.name)
-                                    
-                                    ns_req = ns_dict.get('namespace_request_ticket', ns_dict.get('req_id', ns_dict.get('request_ticket')))
-                                    if ns_req:
-                                        n_obj.request_ticket = ns_req
-                                        
-                                    n_obj.is_decommissioned = True
-                                    n_obj.save()
+                                        active_cr_ids.add(cr_obj.id)
+                                continue
 
-                            active_mirrors = parsed_yaml.get('active_registry_mirrors', [])
-                            if active_mirrors:
-                                ns_mirrors = {}
-                                for m in active_mirrors:
-                                    ns_n = m.get('namespace')
+                            parsed_yaml = yaml.safe_load(content)
+                            if not parsed_yaml:
+                                continue
+
+                            if filename == 'tenant-metadata.yaml':
+                                tenant_obj.siglum = parsed_yaml.get('siglum', tenant_obj.siglum)
+                                tenant_obj.cost_center = parsed_yaml.get('billing_code', parsed_yaml.get('wbs', tenant_obj.cost_center))
+                                tenant_obj.requester = parsed_yaml.get('requester', tenant_obj.requester)
+                            
+                                tenant_req = parsed_yaml.get('tenant_request_ticket', parsed_yaml.get('req_id', parsed_yaml.get('request_ticket')))
+                                if tenant_req:
+                                    tenant_obj.request_ticket = tenant_req
+                                
+                                tenant_obj.save()
+                            
+                                for ns_dict in parsed_yaml.get('active_namespaces', []):
+                                    ns_n = ns_dict.get('name')
                                     if ns_n:
-                                        if ns_n not in ns_mirrors: ns_mirrors[ns_n] = []
-                                        ns_mirrors[ns_n].append(m)
+                                        n_obj, _ = Namespace.objects.get_or_create(name=ns_n, defaults={'tenant': tenant_obj, 'cluster': cluster_obj})
+                                        active_namespace_names.add(n_obj.name)
+                                    
+                                        ns_req = ns_dict.get('namespace_request_ticket', ns_dict.get('req_id', ns_dict.get('request_ticket')))
+                                        if ns_req:
+                                            n_obj.request_ticket = ns_req
                                         
-                                for ns_n, mirrors_list in ns_mirrors.items():
-                                    n_obj, _ = Namespace.objects.get_or_create(name=ns_n, defaults={'tenant': tenant_obj, 'cluster': cluster_obj})
-                                    active_namespace_names.add(n_obj.name)
-                                    RegistryMirror.objects.filter(namespace=n_obj).delete() 
-                                    for mirror in mirrors_list:
-                                        RegistryMirror.objects.create(
-                                            namespace=n_obj,
-                                            name=mirror.get('name', 'mirror'),
-                                            image=mirror.get('image', ''),
-                                            endpoint_url=mirror.get('url', mirror.get('endpoint_url', ''))
-                                        )
-
-                        elif filename == 'Chart.yaml' and ns_obj:
-                            for dep in parsed_yaml.get('dependencies', []):
-                                hd_obj, _ = HelmDeployment.objects.update_or_create(
-                                    namespace=ns_obj,
-                                    chart_name=dep.get('name', 'Unknown'),
-                                    defaults={'version': dep.get('version', 'Unknown')}
-                                )
-                                active_helm_ids.add(hd_obj.id)
-                                
-                        elif ns_obj:
-                            prov = parsed_yaml.get('namespace-provisioner') or {}
+                                        ns_lc = ns_dict.get('lifecycle')
+                                        if ns_lc:
+                                            n_obj.lifecycle = str(ns_lc).strip().lower()
+                                        
+                                        n_obj.is_decommissioned = False
+                                        n_obj.save()
+                                    
+                                        sec_exc = ns_dict.get('security_exception')
+                                        if sec_exc:
+                                            RouteException.objects.update_or_create(
+                                                namespace=n_obj,
+                                                defaults={
+                                                    'is_active': True,
+                                                    'request_id': sec_exc.get('request_ticket', ''),
+                                                    'granted_at': sec_exc.get('granted_at')
+                                                }
+                                            )
+                                            tenant_route_exceptions_found.add(n_obj.name)
                             
-                            cso = parsed_yaml.get('egress') or {}
-                            if cso:
-                                ns_obj.is_cso = True
-                                req_labels = cso.get('requiredLabels') or {}
-                                add_labels = cso.get('additionalLabels') or {}
+                                for ns_dict in parsed_yaml.get('decommissioned_namespaces', []):
+                                    ns_n = ns_dict.get('name')
+                                    if ns_n:
+                                        n_obj, _ = Namespace.objects.get_or_create(name=ns_n, defaults={'tenant': tenant_obj, 'cluster': cluster_obj})
+                                        active_namespace_names.add(n_obj.name)
+                                    
+                                        ns_req = ns_dict.get('namespace_request_ticket', ns_dict.get('req_id', ns_dict.get('request_ticket')))
+                                        if ns_req:
+                                            n_obj.request_ticket = ns_req
+                                        
+                                        n_obj.is_decommissioned = True
+                                        n_obj.save()
+
+                                active_mirrors = parsed_yaml.get('active_registry_mirrors', [])
+                                if active_mirrors:
+                                    ns_mirrors = {}
+                                    for m in active_mirrors:
+                                        ns_n = m.get('namespace')
+                                        if ns_n:
+                                            if ns_n not in ns_mirrors: ns_mirrors[ns_n] = []
+                                            ns_mirrors[ns_n].append(m)
+                                        
+                                    for ns_n, mirrors_list in ns_mirrors.items():
+                                        n_obj, _ = Namespace.objects.get_or_create(name=ns_n, defaults={'tenant': tenant_obj, 'cluster': cluster_obj})
+                                        active_namespace_names.add(n_obj.name)
+                                        RegistryMirror.objects.filter(namespace=n_obj).delete() 
+                                        for mirror in mirrors_list:
+                                            RegistryMirror.objects.create(
+                                                namespace=n_obj,
+                                                name=mirror.get('name', 'mirror'),
+                                                image=mirror.get('image', ''),
+                                                endpoint_url=mirror.get('url', mirror.get('endpoint_url', ''))
+                                            )
+
+                            elif filename == 'Chart.yaml' and ns_obj:
+                                for dep in parsed_yaml.get('dependencies', []):
+                                    hd_obj, _ = HelmDeployment.objects.update_or_create(
+                                        namespace=ns_obj,
+                                        chart_name=dep.get('name', 'Unknown'),
+                                        defaults={'version': dep.get('version', 'Unknown')}
+                                    )
+                                    active_helm_ids.add(hd_obj.id)
                                 
-                                extracted_lc = (
-                                    req_labels.get('lifecycle') or
-                                    req_labels.get('env') or
-                                    add_labels.get('lifecycle') or
-                                    add_labels.get('env')
-                                )
-                                if extracted_lc:
-                                    ns_obj.lifecycle = str(extracted_lc).strip().lower()
+                            elif ns_obj:
+                                prov = parsed_yaml.get('namespace-provisioner') or {}
+                            
+                                cso = parsed_yaml.get('egress') or {}
+                                if cso:
+                                    ns_obj.is_cso = True
+                                    req_labels = cso.get('requiredLabels') or {}
+                                    add_labels = cso.get('additionalLabels') or {}
+                                
+                                    extracted_lc = (
+                                        req_labels.get('lifecycle') or
+                                        req_labels.get('env') or
+                                        add_labels.get('lifecycle') or
+                                        add_labels.get('env')
+                                    )
+                                    if extracted_lc:
+                                        ns_obj.lifecycle = str(extracted_lc).strip().lower()
 
-                                ns_siglum = req_labels.get('siglum')
-                                if ns_siglum:
-                                    ns_obj.siglum = ns_siglum
+                                    ns_siglum = req_labels.get('siglum')
+                                    if ns_siglum:
+                                        ns_obj.siglum = ns_siglum
 
-                                for res in cso.get('egressIPResources', []):
-                                    egress_name = res.get('name')
-                                    egress_ips = res.get('egressIPs', [])
+                                    for res in cso.get('egressIPResources', []):
+                                        egress_name = res.get('name')
+                                        egress_ips = res.get('egressIPs', [])
+                                        if egress_name:
+                                            router_obj, _ = EgressRouter.objects.get_or_create(name=egress_name, defaults={'cluster': cluster_obj})
+                                            router_obj.egress_ips = egress_ips
+                                            router_obj.provider_namespace = ns_obj 
+                                            router_obj.save()
+                                        
+                                    ns_obj.save()
+                                    success_count += 1
+                                
+                                else:
+                                    # FIX: The "Ghost State" CSO Reset
+                                    if getattr(ns_obj, 'is_cso', False):
+                                        ns_obj.is_cso = False
+                                        EgressRouter.objects.filter(provider_namespace=ns_obj).delete()
+                                        ns_obj.save()
+
+                                if prov:
+                                    req_labels = prov.get('requiredLabels') or {}
+                                    add_labels = prov.get('additionalLabels') or {}
+                                    devspace = prov.get('devspaceConfig') or {}
+                                
+                                    extracted_lc = (
+                                        req_labels.get('lifecycle') or
+                                        req_labels.get('env') or
+                                        add_labels.get('lifecycle') or
+                                        add_labels.get('env')
+                                    )
+                                    if extracted_lc:
+                                        ns_obj.lifecycle = str(extracted_lc).strip().lower()
+                                
+                                    ns_obj.is_devspace = devspace.get('isDevspace', ns_obj.is_devspace)
+                                    ns_obj.devspace_user = devspace.get('devspaceUser', ns_obj.devspace_user)
+                                
+                                    ns_siglum = req_labels.get('siglum')
+                                    if ns_siglum:
+                                        ns_obj.siglum = ns_siglum
+                                
+                                    egress_name = add_labels.get('egressip_name')
                                     if egress_name:
                                         router_obj, _ = EgressRouter.objects.get_or_create(name=egress_name, defaults={'cluster': cluster_obj})
-                                        router_obj.egress_ips = egress_ips
-                                        router_obj.provider_namespace = ns_obj 
-                                        router_obj.save()
-                                        
-                                ns_obj.save()
-                                success_count += 1
-                                
-                            else:
-                                # FIX: The "Ghost State" CSO Reset
-                                if getattr(ns_obj, 'is_cso', False):
-                                    ns_obj.is_cso = False
-                                    EgressRouter.objects.filter(provider_namespace=ns_obj).delete()
-                                    ns_obj.save()
-
-                            if prov:
-                                req_labels = prov.get('requiredLabels') or {}
-                                add_labels = prov.get('additionalLabels') or {}
-                                devspace = prov.get('devspaceConfig') or {}
-                                
-                                extracted_lc = (
-                                    req_labels.get('lifecycle') or
-                                    req_labels.get('env') or
-                                    add_labels.get('lifecycle') or
-                                    add_labels.get('env')
-                                )
-                                if extracted_lc:
-                                    ns_obj.lifecycle = str(extracted_lc).strip().lower()
-                                
-                                ns_obj.is_devspace = devspace.get('isDevspace', ns_obj.is_devspace)
-                                ns_obj.devspace_user = devspace.get('devspaceUser', ns_obj.devspace_user)
-                                
-                                ns_siglum = req_labels.get('siglum')
-                                if ns_siglum:
-                                    ns_obj.siglum = ns_siglum
-                                
-                                egress_name = add_labels.get('egressip_name')
-                                if egress_name:
-                                    router_obj, _ = EgressRouter.objects.get_or_create(name=egress_name, defaults={'cluster': cluster_obj})
-                                    ns_obj.egress_router = router_obj
+                                        ns_obj.egress_router = router_obj
                                     
-                                ns_obj.save()
+                                    ns_obj.save()
                                 
-                                if ns_siglum and not tenant_obj.siglum:
-                                    tenant_obj.siglum = ns_siglum
-                                    tenant_obj.save()
+                                    if ns_siglum and not tenant_obj.siglum:
+                                        tenant_obj.siglum = ns_siglum
+                                        tenant_obj.save()
 
-                                flows = prov.get('allowedFlows') or {}
-                                NetworkPolicy.objects.update_or_create(
-                                    namespace=ns_obj,
-                                    defaults={
-                                        'flows_enabled': flows.get('enabled', flows.get('enable', False)),
-                                        'dns_resolution_enabled': flows.get('dnsResolutionEnabled', False),
-                                        'proxy_enabled': flows.get('proxyEnabled', False),
-                                        's3_connection_enabled': flows.get('s3ConnectionEnabled', False)
-                                    }
-                                )
+                                    flows = prov.get('allowedFlows') or {}
+                                    NetworkPolicy.objects.update_or_create(
+                                        namespace=ns_obj,
+                                        defaults={
+                                            'flows_enabled': flows.get('enabled', flows.get('enable', False)),
+                                            'dns_resolution_enabled': flows.get('dnsResolutionEnabled', False),
+                                            'proxy_enabled': flows.get('proxyEnabled', False),
+                                            's3_connection_enabled': flows.get('s3ConnectionEnabled', False)
+                                        }
+                                    )
                                 
-                                conns = flows.get('connections') or []
-                                if conns:
-                                    NetworkConnection.objects.filter(namespace=ns_obj).delete() 
-                                    for conn in conns:
-                                        to_dst = conn.get('to', [])
-                                        NetworkConnection.objects.create(
-                                            namespace=ns_obj,
-                                            from_pod=conn.get('from', ''),
-                                            to_destinations=to_dst if isinstance(to_dst, list) else [to_dst],
-                                            flows=conn.get('flows', [])
-                                        )
-                                else:
-                                    NetworkConnection.objects.filter(namespace=ns_obj).delete()
+                                    conns = flows.get('connections') or []
+                                    if conns:
+                                        NetworkConnection.objects.filter(namespace=ns_obj).delete() 
+                                        for conn in conns:
+                                            to_dst = conn.get('to', [])
+                                            NetworkConnection.objects.create(
+                                                namespace=ns_obj,
+                                                from_pod=conn.get('from', ''),
+                                                to_destinations=to_dst if isinstance(to_dst, list) else [to_dst],
+                                                flows=conn.get('flows', [])
+                                            )
+                                    else:
+                                        NetworkConnection.objects.filter(namespace=ns_obj).delete()
 
-                                if ns_obj.name not in tenant_route_exceptions_found:
-                                    route_exc = prov.get('routeException') or {}
-                                    if route_exc.get('enabled'):
-                                        RouteException.objects.update_or_create(
+                                    if ns_obj.name not in tenant_route_exceptions_found:
+                                        route_exc = prov.get('routeException') or {}
+                                        if route_exc.get('enabled'):
+                                            RouteException.objects.update_or_create(
+                                                namespace=ns_obj,
+                                                defaults={
+                                                    'is_active': True,
+                                                    'request_id': route_exc.get('requestId', ''),
+                                                    'granted_at': route_exc.get('grantedAt')
+                                                }
+                                            )
+                                        else:
+                                            RouteException.objects.filter(namespace=ns_obj).delete()
+
+                                    ops = prov.get('managedServices') or {}
+                                    for op_name, op_val in ops.items():
+                                        if isinstance(op_val, dict):
+                                            Operator.objects.update_or_create(
+                                                namespace=ns_obj,
+                                                name=op_name,
+                                                defaults={'is_enabled': op_val.get('enabled', False)}
+                                            )
+
+                                    rq = prov.get('resourceQuota') or {}
+                                    if rq.get('enabled'):
+                                        ResourceQuota.objects.update_or_create(
                                             namespace=ns_obj,
                                             defaults={
-                                                'is_active': True,
-                                                'request_id': route_exc.get('requestId', ''),
-                                                'granted_at': route_exc.get('grantedAt')
+                                                'requests_cpu': rq.get('requestsCpu'),
+                                                'limits_cpu': rq.get('limitsCpu'),
+                                                'requests_memory': rq.get('requestsMemory'),
+                                                'limits_memory': rq.get('limitsMemory'),
+                                                'requests_storage': rq.get('requestsStorage'),
+                                                'requests_ephemeral_storage': rq.get('requestsEphemeralStorage')
                                             }
                                         )
                                     else:
-                                        RouteException.objects.filter(namespace=ns_obj).delete()
+                                        ResourceQuota.objects.filter(namespace=ns_obj).delete()
 
-                                ops = prov.get('managedServices') or {}
-                                for op_name, op_val in ops.items():
-                                    if isinstance(op_val, dict):
-                                        Operator.objects.update_or_create(
+                                    lr = prov.get('limitRange') or {}
+                                    if lr:
+                                        LimitRange.objects.update_or_create(
                                             namespace=ns_obj,
-                                            name=op_name,
-                                            defaults={'is_enabled': op_val.get('enabled', False)}
+                                            defaults={
+                                                'storage_max': lr.get('storageMax'),
+                                                'storage_min': lr.get('storageMin'),
+                                                'container_cpu': lr.get('containerCPU'),
+                                                'container_request_cpu': lr.get('containerRequestCPU'),
+                                                'container_ram': lr.get('containerRAM'),
+                                                'container_request_ram': lr.get('containerRequestRAM'),
+                                            }
                                         )
+                                    else:
+                                        LimitRange.objects.filter(namespace=ns_obj).delete()
 
-                                rq = prov.get('resourceQuota') or {}
-                                if rq.get('enabled'):
-                                    ResourceQuota.objects.update_or_create(
-                                        namespace=ns_obj,
-                                        defaults={
-                                            'requests_cpu': rq.get('requestsCpu'),
-                                            'limits_cpu': rq.get('limitsCpu'),
-                                            'requests_memory': rq.get('requestsMemory'),
-                                            'limits_memory': rq.get('limitsMemory'),
-                                            'requests_storage': rq.get('requestsStorage'),
-                                            'requests_ephemeral_storage': rq.get('requestsEphemeralStorage')
-                                        }
-                                    )
-                                else:
-                                    ResourceQuota.objects.filter(namespace=ns_obj).delete()
-
-                                lr = prov.get('limitRange') or {}
-                                if lr:
-                                    LimitRange.objects.update_or_create(
-                                        namespace=ns_obj,
-                                        defaults={
-                                            'storage_max': lr.get('storageMax'),
-                                            'storage_min': lr.get('storageMin'),
-                                            'container_cpu': lr.get('containerCPU'),
-                                            'container_request_cpu': lr.get('containerRequestCPU'),
-                                            'container_ram': lr.get('containerRAM'),
-                                            'container_request_ram': lr.get('containerRequestRAM'),
-                                        }
-                                    )
-                                else:
-                                    LimitRange.objects.filter(namespace=ns_obj).delete()
-
-                                harbor = prov.get('harborOnboardingConfig') or {}
-                                if harbor.get('enable'):
-                                    HarborConfig.objects.update_or_create(
-                                        namespace=ns_obj,
-                                        defaults={
-                                            'is_enabled': True,
-                                            'storage_quota_gb': harbor.get('storageQuota', 0),
-                                            'vulnerability_scanning': harbor.get('vulnerabilityScanning', False),
-                                            'auto_sbom_generation': harbor.get('autoSbomGeneration', False),
-                                            'cve_allowlist': harbor.get('cveAllowlist', [])
-                                        }
-                                    )
-                                else:
-                                    HarborConfig.objects.filter(namespace=ns_obj).delete()
-
-                                ra_cfg = prov.get('harborRobotAccounts') or {}
-                                if ra_cfg.get('enabled'):
-                                    RobotAccount.objects.filter(namespace=ns_obj).delete()
-                                    for acc in ra_cfg.get('robotAccounts') or []:
-                                        RobotAccount.objects.create(
+                                    harbor = prov.get('harborOnboardingConfig') or {}
+                                    if harbor.get('enable'):
+                                        HarborConfig.objects.update_or_create(
                                             namespace=ns_obj,
-                                            name_suffix=acc.get('nameSuffix', ''),
-                                            is_default=acc.get('default', False),
-                                            permissions=acc.get('permissions', [])
+                                            defaults={
+                                                'is_enabled': True,
+                                                'storage_quota_gb': harbor.get('storageQuota', 0),
+                                                'vulnerability_scanning': harbor.get('vulnerabilityScanning', False),
+                                                'auto_sbom_generation': harbor.get('autoSbomGeneration', False),
+                                                'cve_allowlist': harbor.get('cveAllowlist', [])
+                                            }
                                         )
-                                else:
-                                    RobotAccount.objects.filter(namespace=ns_obj).delete()
+                                    else:
+                                        HarborConfig.objects.filter(namespace=ns_obj).delete()
 
-                                owner_conf = prov.get('project_owner_config') or {}
-                                owner_proj = owner_conf.get('project_owner') or {}
-                                owners = owner_proj.get('initialUsers') or []
-                                
-                                user_conf = prov.get('project_user_config') or {}
-                                user_proj = user_conf.get('project_users') or {}
-                                users = user_proj.get('initialUsers') or []
-                                
-                                UserAccess.objects.filter(namespace=ns_obj).delete()
-                                for owner in owners:
-                                    if owner: UserAccess.objects.create(namespace=ns_obj, email=owner, role='Owner')
-                                for user in users:
-                                    if user: UserAccess.objects.create(namespace=ns_obj, email=user, role='User')
-                                
-                                success_count += 1
+                                    ra_cfg = prov.get('harborRobotAccounts') or {}
+                                    if ra_cfg.get('enabled'):
+                                        RobotAccount.objects.filter(namespace=ns_obj).delete()
+                                        for acc in ra_cfg.get('robotAccounts') or []:
+                                            RobotAccount.objects.create(
+                                                namespace=ns_obj,
+                                                name_suffix=acc.get('nameSuffix', ''),
+                                                is_default=acc.get('default', False),
+                                                permissions=acc.get('permissions', [])
+                                            )
+                                    else:
+                                        RobotAccount.objects.filter(namespace=ns_obj).delete()
 
-                            mesh = parsed_yaml.get('service-mesh') or {}
-                            if mesh:
-                                cluster_cfg = mesh.get('cluster') or {}
-                                cp_cfg = mesh.get('cp') or {}
-                                kiali_cfg = cp_cfg.get('kiali') or {}
-                                gw_cfg = cp_cfg.get('gw') or {}
-                                dp_cfg = mesh.get('dataplane') or {}
-                                dp_namespaces = dp_cfg.get('namespaces') or []
+                                    owner_conf = prov.get('project_owner_config') or {}
+                                    owner_proj = owner_conf.get('project_owner') or {}
+                                    owners = owner_proj.get('initialUsers') or []
                                 
-                                sm_cp, _ = ServiceMeshControlPlane.objects.update_or_create(
-                                    namespace=ns_obj,
-                                    defaults={
-                                        'domain': cluster_cfg.get('domain', ''),
-                                        'kiali_name': kiali_cfg.get('name', ''),
-                                        'gateway_namespaces': gw_cfg.get('namespaces', []),
-                                        'cp_tenant': cp_cfg.get('tenant', ''),
-                                        'dataplane_namespaces': dp_namespaces if isinstance(dp_namespaces, list) else []
-                                    }
-                                )
+                                    user_conf = prov.get('project_user_config') or {}
+                                    user_proj = user_conf.get('project_users') or {}
+                                    users = user_proj.get('initialUsers') or []
                                 
-                                for dp_ns_item in dp_namespaces:
-                                    dp_ns_name = dp_ns_item.get('name') if isinstance(dp_ns_item, dict) else str(dp_ns_item)
-                                    if dp_ns_name and dp_ns_name != 'None':
-                                        dp_ns_obj, _ = Namespace.objects.get_or_create(
-                                            name=dp_ns_name, 
-                                            defaults={'tenant': tenant_obj, 'cluster': cluster_obj}
-                                        )
-                                        active_namespace_names.add(dp_ns_obj.name)
-                                        dp_ns_obj.service_mesh_cp = sm_cp
-                                        dp_ns_obj.save()
-                                        
-                                if not prov:
+                                    UserAccess.objects.filter(namespace=ns_obj).delete()
+                                    for owner in owners:
+                                        if owner: UserAccess.objects.create(namespace=ns_obj, email=owner, role='Owner')
+                                    for user in users:
+                                        if user: UserAccess.objects.create(namespace=ns_obj, email=user, role='User')
+                                
                                     success_count += 1
-                            elif prov:
-                                ServiceMeshControlPlane.objects.filter(namespace=ns_obj).delete()
 
-                            reg_cfg = parsed_yaml.get('registry-config') or {}
-                            if reg_cfg:
-                                registries = { r.get('name'): r for r in reg_cfg.get('registries', []) }
-                                replications = reg_cfg.get('dockerRegistryReplications', [])
+                                mesh = parsed_yaml.get('service-mesh') or {}
+                                if mesh:
+                                    cluster_cfg = mesh.get('cluster') or {}
+                                    cp_cfg = mesh.get('cp') or {}
+                                    kiali_cfg = cp_cfg.get('kiali') or {}
+                                    gw_cfg = cp_cfg.get('gw') or {}
+                                    dp_cfg = mesh.get('dataplane') or {}
+                                    dp_namespaces = dp_cfg.get('namespaces') or []
                                 
-                                if replications or registries:
-                                    RegistryMirror.objects.filter(namespace=ns_obj).delete()
-                                    for rep in replications:
-                                        reg_name = rep.get('registry')
-                                        reg_info = registries.get(reg_name) or {}
+                                    sm_cp, _ = ServiceMeshControlPlane.objects.update_or_create(
+                                        namespace=ns_obj,
+                                        defaults={
+                                            'domain': cluster_cfg.get('domain', ''),
+                                            'kiali_name': kiali_cfg.get('name', ''),
+                                            'gateway_namespaces': gw_cfg.get('namespaces', []),
+                                            'cp_tenant': cp_cfg.get('tenant', ''),
+                                            'dataplane_namespaces': dp_namespaces if isinstance(dp_namespaces, list) else []
+                                        }
+                                    )
+                                
+                                    for dp_ns_item in dp_namespaces:
+                                        dp_ns_name = dp_ns_item.get('name') if isinstance(dp_ns_item, dict) else str(dp_ns_item)
+                                        if dp_ns_name and dp_ns_name != 'None':
+                                            dp_ns_obj, _ = Namespace.objects.get_or_create(
+                                                name=dp_ns_name, 
+                                                defaults={'tenant': tenant_obj, 'cluster': cluster_obj}
+                                            )
+                                            active_namespace_names.add(dp_ns_obj.name)
+                                            dp_ns_obj.service_mesh_cp = sm_cp
+                                            dp_ns_obj.save()
                                         
-                                        image_filter = ""
-                                        tag_filter = ""
-                                        for f in rep.get('filters', []):
-                                            if 'name' in f: image_filter = f['name']
-                                            if 'tag' in f: tag_filter = f['tag']
+                                    if not prov:
+                                        success_count += 1
+                                elif prov:
+                                    ServiceMeshControlPlane.objects.filter(namespace=ns_obj).delete()
+
+                                reg_cfg = parsed_yaml.get('registry-config') or {}
+                                if reg_cfg:
+                                    registries = { r.get('name'): r for r in reg_cfg.get('registries', []) }
+                                    replications = reg_cfg.get('dockerRegistryReplications', [])
+                                
+                                    if replications or registries:
+                                        RegistryMirror.objects.filter(namespace=ns_obj).delete()
+                                        for rep in replications:
+                                            reg_name = rep.get('registry')
+                                            reg_info = registries.get(reg_name) or {}
+                                        
+                                            image_filter = ""
+                                            tag_filter = ""
+                                            for f in rep.get('filters', []):
+                                                if 'name' in f: image_filter = f['name']
+                                                if 'tag' in f: tag_filter = f['tag']
                                             
-                                        RegistryMirror.objects.create(
-                                            namespace=ns_obj,
-                                            name=reg_name or rep.get('name', 'mirror'),
-                                            endpoint_url=reg_info.get('endpointUrl', ''),
-                                            provider_name=reg_info.get('providerName', ''),
-                                            image=image_filter,
-                                            tag=tag_filter,
-                                            schedule=rep.get('schedule', '')
-                                        )
-                                if not prov and not mesh and not cso:
-                                    success_count += 1
-                            else:
-                                RegistryMirror.objects.filter(namespace=ns_obj).delete()
+                                            RegistryMirror.objects.create(
+                                                namespace=ns_obj,
+                                                name=reg_name or rep.get('name', 'mirror'),
+                                                endpoint_url=reg_info.get('endpointUrl', ''),
+                                                provider_name=reg_info.get('providerName', ''),
+                                                image=image_filter,
+                                                tag=tag_filter,
+                                                schedule=rep.get('schedule', '')
+                                            )
+                                    if not prov and not mesh and not cso:
+                                        success_count += 1
+                                else:
+                                    RegistryMirror.objects.filter(namespace=ns_obj).delete()
 
                     except Exception as e:
                         self.stdout.write(self.style.WARNING(f"Failed to process content of {full_path}: {e}"))
