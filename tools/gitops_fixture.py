@@ -6,6 +6,7 @@ import os, shutil, sys
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "/tmp/gitops_fixture"
 
+
 FILES = {}
 
 # ---------------------------------------------------------------- cluster-a
@@ -307,9 +308,104 @@ namespace-provisioner:
 """
 
 
+SIGLUM_ROOTS = ["ABDEF", "ABXYZ", "BCDEF", "CDEFG", "DEFGH", "EFGHI", "ABCSO", "BCGHI"]
+OPERATORS = ["postgresOperator", "lokiOperator", "certManagerOperator",
+             "kafkaOperator", "redisOperator", "elasticOperator"]
+
+
+def add_scale(files, tenants, namespaces, clusters=("cluster-a", "cluster-b")):
+    """Add bulk tenants/namespaces on top of the correctness fixture.
+
+    Shapes the data like the real repo: most namespaces carry only a
+    provisioner block and one chart dependency, a minority add operators,
+    templates or mirrors. Used to measure behaviour at production scale --
+    see tools/README.md.
+    """
+    per_tenant = max(1, round(namespaces / tenants))
+    made_ns = 0
+
+    for t in range(tenants):
+        cluster = clusters[t % len(clusters)]
+        tenant = f"gen-tenant-{t:04d}"
+        siglum = SIGLUM_ROOTS[t % len(SIGLUM_ROOTS)]
+        entries = []
+
+        for n in range(per_tenant):
+            if made_ns >= namespaces:
+                break
+            ns = f"gen-ns-{made_ns:04d}"
+            made_ns += 1
+            lifecycle = "prod" if n % 3 == 0 else "dev"
+            entries.append(f"  - name: {ns}\n    lifecycle: {lifecycle}\n")
+
+            ops = ""
+            if made_ns % 3 == 0:
+                chosen = OPERATORS[: (made_ns % len(OPERATORS)) + 1]
+                ops = "  managedServices:\n" + "".join(
+                    f"    {o}:\n      enabled: {'true' if i % 2 == 0 else 'false'}\n"
+                    for i, o in enumerate(chosen))
+
+            files[f"{cluster}/{tenant}/{ns}/values.yaml"] = f"""
+namespace-provisioner:
+  requiredLabels:
+    lifecycle: {lifecycle}
+    siglum: {siglum}
+  resourceQuota:
+    enabled: true
+    requestsCpu: "{2 + (n % 8)}"
+    limitsCpu: "{4 + (n % 16)}"
+    requestsMemory: {8 + (n % 32)}Gi
+    limitsMemory: {16 + (n % 64)}Gi
+    requestsStorage: {50 + (n % 200)}Gi
+{ops}  harborOnboardingConfig:
+    enable: {'true' if made_ns % 2 == 0 else 'false'}
+    storageQuota: {10 + (n % 90)}
+  project_owner_config:
+    project_owner:
+      initialUsers: [owner{made_ns % 120}@example.com]
+  project_user_config:
+    project_users:
+      initialUsers: [user{made_ns % 400}@example.com, user{(made_ns + 7) % 400}@example.com]
+"""
+            files[f"{cluster}/{tenant}/{ns}/Chart.yaml"] = f"""
+apiVersion: v2
+name: {ns}
+version: 1.0.{n}
+dependencies:
+  - name: namespace-provisioner
+    version: 2.3.{made_ns % 5}
+"""
+            if made_ns % 12 == 0:
+                files[f"{cluster}/{tenant}/{ns}/templates/extra.yaml"] = f"""
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cfg-{ns}
+data:
+  payload: "{'x' * 400}"
+"""
+
+        files[f"{cluster}/{tenant}/tenant-metadata.yaml"] = (
+            f"siglum: {siglum}\nbilling_code: CC-{4000 + t}\n"
+            f"requester: req{t % 50}@example.com\nactive_namespaces:\n" + "".join(entries)
+        )
+    return made_ns
+
+
 def main():
+    scale = None
+    if "--scale" in sys.argv:
+        i = sys.argv.index("--scale")
+        tenants, namespaces = (int(x) for x in sys.argv[i + 1].split(","))
+        scale = (tenants, namespaces)
+
     if os.path.exists(ROOT):
         shutil.rmtree(ROOT)
+
+    if scale:
+        made = add_scale(FILES, *scale)
+        print(f"scale: +{scale[0]} tenants, +{made} namespaces")
+
     for rel, body in FILES.items():
         path = os.path.join(ROOT, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)

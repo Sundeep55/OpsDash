@@ -17,6 +17,17 @@ the run.
 python tools/gitops_fixture.py /tmp/fixture
 ```
 
+Add `--scale <tenants>,<namespaces>` for a production-sized repo on top of the
+correctness cases, for measuring behaviour under real row counts:
+
+```
+python tools/gitops_fixture.py /tmp/fixture-big --scale 298,797
+```
+
+Bulk data is shaped like the real repo -- most namespaces carry only a
+provisioner block and one chart dependency, a minority add operators, templates
+or mirrors.
+
 ## api_snapshot.py
 
 Dumps every model table and every API response to a directory as sorted JSON.
