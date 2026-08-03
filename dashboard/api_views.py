@@ -594,10 +594,26 @@ class DevExRosterApiView(APIView):
             })
         return Response(data)
 
+@extend_schema_view(
+    get=extend_schema(
+        description=(
+            "Every namespace holding an active route exception, with the cluster and "
+            "tenant it belongs to and the ticket the exception was granted under.\n\n"
+            "Unpaginated: one call returns the complete set. Optional `cluster` "
+            "narrows to a single cluster; `search` matches namespace name or "
+            "request id. Ordered by grant date, most recent first."
+        ),
+    )
+)
 class SecurityRouteExceptionApiView(generics.ListAPIView):
     serializer_class = RouteExceptionFlatSerializer
-    pagination_class = StandardResultsSetPagination
-    filter_backends = [DjangoFilterBackend, SearchFilter]
+    # The only product endpoint that used to paginate. Consumers of these
+    # endpoints want one call and one complete dataset, so it now matches the
+    # other twelve and returns a bare list.
+    pagination_class = None
+    # DjangoFilterBackend was listed with no filterset_class or filterset_fields,
+    # which makes it a no-op. Dropped; `cluster` is handled in get_queryset.
+    filter_backends = [SearchFilter]
     search_fields = ['namespace__name', 'request_id']
 
     def get_queryset(self):
@@ -608,7 +624,8 @@ class SecurityRouteExceptionApiView(generics.ListAPIView):
         return qs.order_by('-granted_at')
 
 class SecurityPostureApiView(APIView):
-    pagination_class = None
+    # Plain APIView, so there is no pagination to disable -- it returns the full
+    # list by construction, like the other flat product endpoints.
 
     @extend_schema(
         responses=SecurityPostureFlatSerializer(many=True),
