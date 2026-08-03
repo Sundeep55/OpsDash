@@ -12,8 +12,16 @@ class SyncState:
 
     active_cr_ids: set = field(default_factory=set)
     active_helm_ids: set = field(default_factory=set)
+    active_operator_ids: set = field(default_factory=set)
     active_namespace_names: set = field(default_factory=set)
     active_tenant_names: set = field(default_factory=set)
+
+    # namespace name -> (cluster, tenant) that claimed it during this run.
+    # Namespace and tenant names are globally unique by convention, and the
+    # schema relies on that: both use a bare name as primary key. Nothing
+    # enforces it, so a name claimed twice with different owners would silently
+    # overwrite. Recorded here so it can be reported instead.
+    namespace_claims: dict = field(default_factory=dict)
 
     # Namespaces whose route exception was granted by tenant-metadata.yaml.
     # The provisioner parser must not overwrite those. This works because

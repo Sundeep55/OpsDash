@@ -25,6 +25,20 @@ Dumps every model table and every API response to a directory as sorted JSON.
 DJANGO_ALLOWED_HOSTS=testserver PYTHONPATH=. python tools/api_snapshot.py /tmp/before
 ```
 
+## mutation_check.py
+
+Syncs a fixture, mutates it the way Git would change over time, re-syncs, and
+asserts the database followed. This catches a whole class of bug a single sync
+cannot: records that are only ever created or set, never updated or removed --
+an operator deleted from `managedServices`, a tenant moved back out of
+`.decommissioned_tenants/`, a namespace reassigned to a different tenant.
+
+```
+PYTHONPATH=. python tools/mutation_check.py /tmp/fixture /tmp/fixture-mutated
+```
+
+Exits non-zero if any assertion fails.
+
 ## Typical use
 
 ```bash

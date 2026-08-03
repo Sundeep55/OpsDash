@@ -12,10 +12,13 @@ The repository is laid out as:
 Path parsing here is pure and does no database work; ensure_records() does the
 writes. Keeping them apart makes the layout rules readable on their own.
 """
+import logging
 import os
 from dataclasses import dataclass
 
 from dashboard.models import Cluster, Namespace, Tenant
+
+logger = logging.getLogger(__name__)
 
 # Not a per-namespace config file: a cluster-wide pool definition that would
 # otherwise be parsed as though it belonged to whatever tenant directory it sits in.
@@ -113,23 +116,40 @@ def iter_locations(repo_path):
 def ensure_records(location, state):
     """Get-or-create the cluster, tenant and namespace a file belongs to.
 
-    Registers them as present in Git so the prune does not remove them.
+    The tree is the source of truth: where a file sits determines which tenant
+    and cluster own it and whether it is decommissioned. Existing rows are
+    updated to match, so moves and recommissions in Git are followed rather
+    than leaving the first-seen values in place forever.
+
+    Registers everything as present in Git so the prune does not remove it.
     Returns (cluster, tenant, namespace); namespace is None for tenant-level files.
     """
     cluster, _ = Cluster.objects.get_or_create(name=location.cluster_name)
-    tenant, _ = Tenant.objects.get_or_create(
+
+    tenant, created = Tenant.objects.get_or_create(
         name=location.tenant_name,
         defaults={'cluster': cluster, 'is_decommissioned': location.is_tenant_decommissioned},
     )
     state.active_tenant_names.add(tenant.name)
 
-    if location.is_tenant_decommissioned and not tenant.is_decommissioned:
-        tenant.is_decommissioned = True
-        tenant.save()
+    if not created:
+        changes = {}
+        if tenant.cluster_id != cluster.pk:
+            changes['cluster'] = cluster
+        # Assigned both ways: a tenant moved out of .decommissioned_tenants/ used
+        # to stay decommissioned forever, because this only ever set it True.
+        if tenant.is_decommissioned != location.is_tenant_decommissioned:
+            changes['is_decommissioned'] = location.is_tenant_decommissioned
+        if changes:
+            for attribute, value in changes.items():
+                setattr(tenant, attribute, value)
+            tenant.save(update_fields=list(changes))
 
     namespace = None
     if location.namespace_name:
-        namespace, _ = Namespace.objects.get_or_create(
+        _record_claim(location, state)
+
+        namespace, created = Namespace.objects.get_or_create(
             name=location.namespace_name,
             defaults={
                 'tenant': tenant,
@@ -139,11 +159,43 @@ def ensure_records(location, state):
         )
         state.record_namespace(namespace.name)
 
-        if location.is_namespace_decommissioned and not namespace.is_decommissioned:
-            namespace.is_decommissioned = True
-            namespace.save()
+        if not created:
+            changes = {}
+            # Without this a namespace moved to another tenant kept pointing at
+            # the old one -- and if that tenant then vanished from Git, the
+            # namespace was cascaded away by the tenant prune despite still
+            # being present in the repository.
+            if namespace.tenant_id != tenant.pk:
+                changes['tenant'] = tenant
+            if namespace.cluster_id != cluster.pk:
+                changes['cluster'] = cluster
+            if namespace.is_decommissioned != location.is_namespace_decommissioned:
+                changes['is_decommissioned'] = location.is_namespace_decommissioned
+            if changes:
+                for attribute, value in changes.items():
+                    setattr(namespace, attribute, value)
+                namespace.save(update_fields=list(changes))
 
     return cluster, tenant, namespace
+
+
+def _record_claim(location, state):
+    """Warn if one namespace name is claimed by two different owners in a run.
+
+    Namespace names are globally unique by convention and the schema depends on
+    it, but nothing enforces it. Two clusters using the same name would
+    otherwise collapse into one row with whichever owner was walked last, with
+    no signal at all.
+    """
+    claim = (location.cluster_name, location.tenant_name)
+    previous = state.namespace_claims.setdefault(location.namespace_name, claim)
+    if previous != claim:
+        logger.warning(
+            "Namespace %r claimed by %s/%s and %s/%s in the same sync. Namespace "
+            "names must be globally unique; this one will resolve to whichever "
+            "was processed last.",
+            location.namespace_name, previous[0], previous[1], claim[0], claim[1],
+        )
 
 
 def read_text(path):

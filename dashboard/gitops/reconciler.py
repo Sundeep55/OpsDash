@@ -7,7 +7,7 @@ a pure projection of Git rather than an accumulating log.
 import logging
 from dataclasses import dataclass
 
-from dashboard.models import CustomResource, HelmDeployment, Namespace, Tenant
+from dashboard.models import CustomResource, HelmDeployment, Namespace, Operator, Tenant
 
 logger = logging.getLogger(__name__)
 
@@ -16,17 +16,19 @@ logger = logging.getLogger(__name__)
 class PruneResult:
     custom_resources: int = 0
     helm_deployments: int = 0
+    operators: int = 0
     namespaces: int = 0
     tenants: int = 0
 
     @property
     def total(self):
-        return (self.custom_resources + self.helm_deployments
+        return (self.custom_resources + self.helm_deployments + self.operators
                 + self.namespaces + self.tenants)
 
     def __str__(self):
         return (f"{self.custom_resources} CRs, {self.helm_deployments} Charts, "
-                f"{self.namespaces} Namespaces, {self.tenants} Tenants")
+                f"{self.operators} Operators, {self.namespaces} Namespaces, "
+                f"{self.tenants} Tenants")
 
 
 def _deleted_count(result, model):
@@ -43,12 +45,14 @@ def prune(state):
     """Delete everything absent from the repository. Returns a PruneResult."""
     cr_result = CustomResource.objects.exclude(id__in=state.active_cr_ids).delete()
     helm_result = HelmDeployment.objects.exclude(id__in=state.active_helm_ids).delete()
+    operator_result = Operator.objects.exclude(id__in=state.active_operator_ids).delete()
     ns_result = Namespace.objects.exclude(name__in=state.active_namespace_names).delete()
     tenant_result = Tenant.objects.exclude(name__in=state.active_tenant_names).delete()
 
     return PruneResult(
         custom_resources=_deleted_count(cr_result, CustomResource),
         helm_deployments=_deleted_count(helm_result, HelmDeployment),
+        operators=_deleted_count(operator_result, Operator),
         namespaces=_deleted_count(ns_result, Namespace),
         tenants=_deleted_count(tenant_result, Tenant),
     )

@@ -130,8 +130,11 @@ def _apply_provisioner(prov, ctx):
     if lifecycle:
         namespace.lifecycle = str(lifecycle).strip().lower()
 
-    namespace.is_devspace = devspace.get('isDevspace', namespace.is_devspace)
-    namespace.devspace_user = devspace.get('devspaceUser', namespace.devspace_user)
+    # Defaulted to absent rather than to the stored value. Defaulting to the
+    # stored value made these write-once: a namespace that stopped being a
+    # devspace in Git stayed flagged as one, still showing its old owner.
+    namespace.is_devspace = devspace.get('isDevspace', False)
+    namespace.devspace_user = devspace.get('devspaceUser') or None
 
     siglum = required.get('siglum')
     if siglum:
@@ -211,11 +214,15 @@ def _apply_route_exception(prov, ctx):
 def _apply_operators(prov, ctx):
     for name, config in (prov.get('managedServices') or {}).items():
         if isinstance(config, dict):
-            Operator.objects.update_or_create(
+            operator, _ = Operator.objects.update_or_create(
                 namespace=ctx.namespace,
                 name=name,
                 defaults={'is_enabled': config.get('enabled', False)},
             )
+            # Registered so the prune can drop operators removed from Git.
+            # Without this an operator deleted from managedServices kept its
+            # last is_enabled value forever and stayed in the analytics counts.
+            ctx.state.active_operator_ids.add(operator.id)
 
 
 def _apply_resource_quota(prov, ctx):
@@ -301,6 +308,7 @@ def _apply_service_mesh(mesh, ctx):
         },
     )
 
+    member_names = []
     for entry in dataplane:
         name = entry.get('name') if isinstance(entry, dict) else str(entry)
         # 'None' appears literally in the repo where a slot is unfilled.
@@ -312,7 +320,14 @@ def _apply_service_mesh(mesh, ctx):
         )
         ctx.state.record_namespace(member.name)
         member.service_mesh_cp = control_plane
-        member.save()
+        member.save(update_fields=['service_mesh_cp'])
+        member_names.append(member.name)
+
+    # Detach namespaces dropped from the dataplane list. The link was only ever
+    # set, so a namespace removed from the mesh in Git kept claiming membership.
+    Namespace.objects.filter(service_mesh_cp=control_plane).exclude(
+        name__in=member_names
+    ).update(service_mesh_cp=None)
 
 
 # ----------------------------------------------------------- registry-config
