@@ -1,4 +1,4 @@
-<button @click="selected.namespace = null" class="group mb-6 text-sm font-semibold text-slate-500 hover:text-slate-900 flex items-center transition-colors">
+<button @click="selected.namespace = null" class="group mb-6 text-sm font-semibold text-slate-500 hover:text-slate-900 flex items-center transition-colors focus-ring rounded">
     <svg class="mr-2 h-4 w-4 text-slate-400 group-hover:text-slate-900" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
     Back to Directory
 </button>
@@ -171,10 +171,16 @@
             <div class="bento-header"><h4 class="bento-title">Platform Operators</h4></div>
             <div class="bento-body">
                 <div class="flex flex-wrap gap-2">
-                    <span v-for="op in allOperatorsList" :key="op" :class="['badge flex items-center', selected.namespace.operators?.[op]?.enabled ? 'bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200 shadow-sm' : 'bg-slate-50 text-slate-400 border border-slate-200 opacity-60']">
+                    {# Disabled chips were text-slate-400 at opacity-60 on slate-50 --
+                       under 2:1 contrast, effectively unreadable. They now carry
+                       full-opacity slate-500 text and say so to screen readers. #}
+                    <span v-for="op in allOperatorsList" :key="op"
+                          :class="['badge flex items-center', selected.namespace.operators?.[op]?.enabled ? 'bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200 shadow-sm' : 'bg-slate-50 text-slate-500 border border-slate-200']"
+                          :title="op.replace('Operator', '') + (selected.namespace.operators?.[op]?.enabled ? ' — enabled' : ' — not enabled')">
                         <span v-if="selected.namespace.operators?.[op]?.enabled" v-html="getOperatorIcon(op)" class="mr-1"></span>
-                        <svg v-else class="mr-1 h-3 w-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>
+                        <svg v-else class="mr-1 h-3 w-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>
                         [[ op.replace('Operator', '') ]]
+                        <span class="sr-only">[[ selected.namespace.operators?.[op]?.enabled ? 'enabled' : 'not enabled' ]]</span>
                     </span>
                 </div>
             </div>

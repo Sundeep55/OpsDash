@@ -14,6 +14,7 @@ import { useSync } from './composables/useSync.js';
 import { SiglumTree } from './components/SiglumTree.js';
 import { CopyButton } from './components/CopyButton.js';
 import { DetailSection } from './components/DetailSection.js';
+import { TableSkeleton } from './components/TableSkeleton.js';
 import { UI_CONFIG } from './ui_config.js';
 
 const { createApp, ref, computed, onMounted, onUnmounted, watch } = Vue;
@@ -26,7 +27,7 @@ const NO_FEATURES = {
 
 createApp({
     delimiters: ['[[', ']]'],
-    components: { SiglumTree, CopyButton, DetailSection },
+    components: { SiglumTree, CopyButton, DetailSection, TableSkeleton },
 
     setup() {
         const portal = readPortalConfig();

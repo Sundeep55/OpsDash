@@ -43,7 +43,7 @@
                     </span>
                     [[ syncStatus ]]
                 </div>
-                <button @click="syncData" :disabled="isSyncing" class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-wait">
+                <button @click="syncData" :disabled="isSyncing" class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-wait focus-ring">
                     <svg v-if="isSyncing" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                     [[ isSyncing ? 'Syncing...' : 'Sync Repository' ]]
                 </button>
@@ -61,7 +61,7 @@
 
     <main class="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 relative z-0">
         <div class="mb-8 flex space-x-2 bg-white p-1.5 rounded-full border border-slate-200 shadow-sm overflow-x-auto w-fit">
-            <button v-for="tab in tabs" :key="tab.id" @click="handleTabClick(tab.id)" :class="['nav-pill', activeTab === tab.id ? 'nav-pill-active' : 'nav-pill-inactive']">
+            <button v-for="tab in tabs" :key="tab.id" @click="handleTabClick(tab.id)" :class="['nav-pill focus-ring', activeTab === tab.id ? 'nav-pill-active' : 'nav-pill-inactive']" :aria-current="activeTab === tab.id ? 'page' : null">
                 [[ tab.label ]]
             </button>
         </div>

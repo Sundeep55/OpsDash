@@ -32,6 +32,54 @@
     border-radius: var(--radius-md);
 }
 
+/* A list that already has rows and is fetching replacements.
+ *
+ * Skeletons only make sense on a first load. When rows are already on screen a
+ * filter change used to look like nothing happened, so this dims what is now
+ * stale and blocks clicks on rows that are about to be replaced. */
+/* A list that already has rows and is fetching replacements.
+ *
+ * An indeterminate bar across the top of the table, plus blocking clicks on
+ * rows that are about to be replaced. A bar rather than dimming the rows:
+ * opacity proved unreliable here (it does not apply to table-row-group
+ * elements, and did not take on the wrapper either, while pointer-events from
+ * the same rule did), and a moving bar reads as "working" far more clearly
+ * than a fade. */
+.is-refreshing {
+    pointer-events: none;
+    position: relative;
+}
+
+.is-refreshing::after {
+    content: '';
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    height: 3px;
+    z-index: 10;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        var(--color-blue-500) 50%,
+        transparent 100%
+    );
+    background-size: 40% 100%;
+    background-repeat: no-repeat;
+    animation: refreshing-sweep 900ms ease-in-out infinite;
+}
+
+@keyframes refreshing-sweep {
+    0%   { background-position: -40% 0; }
+    100% { background-position: 140% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .is-refreshing::after {
+        animation: none;
+        background: var(--color-blue-500);
+    }
+}
+
 /* Placeholder shown while a list or detail request is in flight. */
 .skeleton {
     background: linear-gradient(
