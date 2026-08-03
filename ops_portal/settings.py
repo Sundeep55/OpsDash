@@ -27,6 +27,12 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': os.environ.get('DATABASE_PATH', BASE_DIR / 'db.sqlite3'),
+        'OPTIONS': {
+            # Wait for a busy writer instead of failing instantly with
+            # "database is locked". WAL keeps readers unblocked (see
+            # dashboard/apps.py), but writers still serialise against each other.
+            'timeout': 30,
+        },
     }
 }
 
