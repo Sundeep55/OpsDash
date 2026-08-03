@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from dashboard.api.filters import parse_cpu, parse_mem_gi
-from dashboard.models import Cluster, GPUAllocation
+from dashboard.models import Cluster, GPUAllocation, Namespace
 from dashboard.serializers import (
     GPUAllocationFlatSerializer, PlatformClusterMetricsSerializer,
 )
@@ -14,36 +14,56 @@ from dashboard.serializers import (
 class PlatformClusterApiView(APIView):
     @extend_schema(responses=PlatformClusterMetricsSerializer(many=True))
     def get(self, request):
-        clusters = Cluster.objects.prefetch_related(
-            'namespaces', 'namespaces__resource_quota', 'namespaces__gpu_allocation'
-        ).annotate(
-            # .count() on the prefetched managers issued a fresh query per
-            # cluster and discarded the prefetch; annotate does it in one pass.
-            tenant_total=Count('tenants', distinct=True),
-            namespace_total=Count('namespaces', distinct=True),
+        # Two rows out, so nothing here should be per-namespace work. The
+        # quota values need Python to parse ("2000m", "16Gi"), but only the
+        # strings are needed -- not 800 model instances and their relations.
+        # values_list keeps this to raw tuples.
+        totals = {}
+        rows = Namespace.objects.values_list(
+            'cluster__name',
+            'resource_quota__requests_cpu',
+            'resource_quota__limits_cpu',
+            'resource_quota__requests_memory',
+            'resource_quota__limits_memory',
+            'gpu_allocation__gpu_count',
         )
-        data = []
-        for c in clusters:
-            total_cpu_req = sum(parse_cpu(ns.resource_quota.requests_cpu) for ns in c.namespaces.all() if hasattr(ns, 'resource_quota') and ns.resource_quota)
-            total_cpu_lim = sum(parse_cpu(ns.resource_quota.limits_cpu) for ns in c.namespaces.all() if hasattr(ns, 'resource_quota') and ns.resource_quota)
-            total_mem_req = sum(parse_mem_gi(ns.resource_quota.requests_memory) for ns in c.namespaces.all() if hasattr(ns, 'resource_quota') and ns.resource_quota)
-            total_mem_lim = sum(parse_mem_gi(ns.resource_quota.limits_memory) for ns in c.namespaces.all() if hasattr(ns, 'resource_quota') and ns.resource_quota)
-            
-            total_gpus = sum(
-                ns.gpu_allocation.gpu_count
-                for ns in c.namespaces.all()
-                if getattr(ns, 'gpu_allocation', None)
+        for cluster_name, cpu_req, cpu_lim, mem_req, mem_lim, gpus in rows:
+            bucket = totals.setdefault(
+                cluster_name,
+                {'cpu_req': 0, 'cpu_lim': 0, 'mem_req': 0, 'mem_lim': 0, 'gpus': 0},
             )
+            bucket['cpu_req'] += parse_cpu(cpu_req)
+            bucket['cpu_lim'] += parse_cpu(cpu_lim)
+            bucket['mem_req'] += parse_mem_gi(mem_req)
+            bucket['mem_lim'] += parse_mem_gi(mem_lim)
+            bucket['gpus'] += gpus or 0
 
+        # Counted in two queries on purpose. Annotating both onto one queryset
+        # joins two multi-valued relations at once, and SQLite has to build the
+        # cartesian product of every tenant against every namespace per cluster
+        # before the DISTINCTs collapse it: 67ms here versus 0.9ms as two
+        # separate aggregates. The cost is invisible on a small dataset and
+        # grows with the product of the two counts.
+        tenant_totals = dict(
+            Cluster.objects.annotate(n=Count('tenants')).values_list('name', 'n')
+        )
+        namespace_totals = dict(
+            Cluster.objects.annotate(n=Count('namespaces')).values_list('name', 'n')
+        )
+
+        empty = {'cpu_req': 0, 'cpu_lim': 0, 'mem_req': 0, 'mem_lim': 0, 'gpus': 0}
+        data = []
+        for c in Cluster.objects.all():
+            bucket = totals.get(c.name, empty)
             data.append({
                 "cluster_name": c.name,
-                "total_tenants": c.tenant_total,
-                "total_namespaces": c.namespace_total,
-                "total_cpu_requests": total_cpu_req,
-                "total_cpu_limits": total_cpu_lim,
-                "total_mem_requests_gb": total_mem_req,
-                "total_mem_limits_gb": total_mem_lim,
-                "total_gpus_allocated": total_gpus
+                "total_tenants": tenant_totals.get(c.name, 0),
+                "total_namespaces": namespace_totals.get(c.name, 0),
+                "total_cpu_requests": bucket['cpu_req'],
+                "total_cpu_limits": bucket['cpu_lim'],
+                "total_mem_requests_gb": bucket['mem_req'],
+                "total_mem_limits_gb": bucket['mem_lim'],
+                "total_gpus_allocated": bucket['gpus'],
             })
         return Response(data)
 
