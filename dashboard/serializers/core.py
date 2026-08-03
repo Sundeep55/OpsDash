@@ -11,6 +11,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from dashboard.gitops.sections import auto_rendered_sections, describe
 from dashboard.models import Cluster, CustomResource, Namespace, Tenant
 
 class _NamespaceFieldsMixin:
@@ -157,6 +158,7 @@ class NamespaceDetailSerializer(_NamespaceFieldsMixin, serializers.ModelSerializ
     owners = serializers.SerializerMethodField()
     users = serializers.SerializerMethodField()
     robotAccounts = serializers.SerializerMethodField()
+    sections = serializers.SerializerMethodField()
 
     class Meta:
         model = Namespace
@@ -165,8 +167,25 @@ class NamespaceDetailSerializer(_NamespaceFieldsMixin, serializers.ModelSerializ
             'devspace_user', 'request_ticket', 'is_decommissioned',
             'assigned_egress', 'provided_egress', 'network_flows', 'routeException', 'operators', 'charts',
             'registry_mirrors', 'templates', 'resourceQuota', 'harbor', 'gpu',
-            'owners', 'users', 'robotAccounts'
+            'owners', 'users', 'robotAccounts', 'sections'
         ]
+
+    @extend_schema_field(OpenApiTypes.OBJECT)
+    def get_sections(self, obj):
+        """Sections published straight from the registry.
+
+        A declarative section marked auto_render needs no serializer field and
+        no template block: it appears here, and the frontend's section registry
+        renders it. The long-standing sections above keep their bespoke keys and
+        markup, so nothing here changes their shape.
+        """
+        described = {}
+        for section in auto_rendered_sections():
+            instance = getattr(obj, section.model._meta.get_field('namespace').related_query_name(), None)
+            payload = describe(section, instance)
+            if payload is not None:
+                described[section.name] = payload
+        return described
 
     @extend_schema_field(OpenApiTypes.OBJECT)
     def get_assigned_egress(self, obj):

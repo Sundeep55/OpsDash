@@ -13,6 +13,7 @@ import { useSelection, TAB_ENTITY } from './composables/useSelection.js';
 import { useSync } from './composables/useSync.js';
 import { SiglumTree } from './components/SiglumTree.js';
 import { CopyButton } from './components/CopyButton.js';
+import { DetailSection } from './components/DetailSection.js';
 import { UI_CONFIG } from './ui_config.js';
 
 const { createApp, ref, computed, onMounted, onUnmounted, watch } = Vue;
@@ -25,7 +26,7 @@ const NO_FEATURES = {
 
 createApp({
     delimiters: ['[[', ']]'],
-    components: { SiglumTree, CopyButton },
+    components: { SiglumTree, CopyButton, DetailSection },
 
     setup() {
         const portal = readPortalConfig();

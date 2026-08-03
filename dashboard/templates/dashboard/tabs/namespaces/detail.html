@@ -382,3 +382,13 @@
         </div>
     </div>
 </div>
+
+{% comment %}
+Sections declared in dashboard/gitops/sections.py with auto_render=True render
+themselves from the descriptor the API sends. Adding a plain config block to the
+chart needs an entry in that registry and nothing here.
+{% endcomment %}
+<div v-if="selected.namespace.sections && Object.keys(selected.namespace.sections).length"
+     class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+    <detail-section v-for="(section, key) in selected.namespace.sections" :key="key" :section="section"></detail-section>
+</div>
