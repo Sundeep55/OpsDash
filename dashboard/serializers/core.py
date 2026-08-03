@@ -1,166 +1,17 @@
-from rest_framework import serializers
-from drf_spectacular.utils import extend_schema_field
-from drf_spectacular.types import OpenApiTypes
+"""Serializers for the internal API, consumed by the Vue SPA.
+
+Split from the product serializers in flat.py because the two have different
+stability guarantees: these may change freely alongside the frontend, whereas
+the flat ones are a contract with other teams.
+"""
 from datetime import date
+
 from django.db.models import Prefetch
-from .models import Cluster, Tenant, Namespace, RouteException, CustomResource
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
+from rest_framework import serializers
 
-class ClusterSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Cluster
-        fields = '__all__'
-
-class TenantSerializer(serializers.ModelSerializer):
-    active_ns_count = serializers.IntegerField(read_only=True, default=0)
-    class Meta:
-        model = Tenant
-        fields = '__all__'
-
-class TenantDetailSerializer(TenantSerializer):
-    active_namespaces = serializers.SerializerMethodField()
-    decommissioned_namespaces = serializers.SerializerMethodField()
-    has_cso = serializers.SerializerMethodField()
-
-    class Meta(TenantSerializer.Meta):
-        fields = '__all__'
-
-    # The tenant detail panel renders namespaces as a table, so it takes the list
-    # payload. It previously used the full serializer while select_related'ing
-    # only four of the nine relations that serializer touches, so every tenant
-    # detail load fired a burst of per-namespace queries and shipped the raw YAML
-    # of every custom resource.
-    @extend_schema_field(OpenApiTypes.ANY)
-    def get_active_namespaces(self, obj):
-        qs = NamespaceListSerializer.optimize(obj.namespaces.filter(is_decommissioned=False))
-        return NamespaceListSerializer(qs, many=True).data
-
-    @extend_schema_field(OpenApiTypes.ANY)
-    def get_decommissioned_namespaces(self, obj):
-        qs = NamespaceListSerializer.optimize(obj.namespaces.filter(is_decommissioned=True))
-        return NamespaceListSerializer(qs, many=True).data
-        
-    @extend_schema_field(OpenApiTypes.BOOL)
-    def get_has_cso(self, obj):
-        return obj.namespaces.filter(egress_router__isnull=False).exists()
-
-class UserListSerializer(serializers.Serializer):
-    email = serializers.CharField()
-    access_count = serializers.IntegerField()
-
-# =====================================================================
-# "API AS A PRODUCT" - SPECIALIZED FLAT SERIALIZERS
-# =====================================================================
-
-class PlatformClusterMetricsSerializer(serializers.Serializer):
-    cluster_name = serializers.CharField()
-    total_tenants = serializers.IntegerField()
-    total_namespaces = serializers.IntegerField()
-    total_cpu_requests = serializers.FloatField()
-    total_cpu_limits = serializers.FloatField()
-    total_mem_requests_gb = serializers.FloatField()
-    total_mem_limits_gb = serializers.FloatField()
-    total_gpus_allocated = serializers.IntegerField()
-
-class GPUAllocationFlatSerializer(serializers.Serializer):
-    cluster = serializers.CharField()
-    namespace = serializers.CharField()
-    tenant = serializers.CharField()
-    allocation_type = serializers.CharField()
-    gpu_count = serializers.IntegerField()
-    limit_min = serializers.CharField(allow_null=True)
-    limit_max = serializers.CharField(allow_null=True)
-    limit_default = serializers.CharField(allow_null=True)
-    limit_default_request = serializers.CharField(allow_null=True)
-
-class FinOpsQuotaFlatSerializer(serializers.Serializer):
-    namespace = serializers.CharField()
-    tenant = serializers.CharField()
-    cost_center = serializers.CharField()
-    siglum = serializers.CharField()
-    cpu_requests = serializers.FloatField()
-    cpu_limits = serializers.FloatField()
-    mem_requests_gb = serializers.FloatField()
-    mem_limits_gb = serializers.FloatField()
-    storage_requests_gb = serializers.FloatField()
-
-class FinOpsUnattributedSerializer(serializers.Serializer):
-    namespace = serializers.CharField()
-    tenant = serializers.CharField()
-    cluster = serializers.CharField()
-    cpu_requests = serializers.FloatField()
-    mem_requests_gb = serializers.FloatField()
-    reason = serializers.CharField()
-
-class DevSpaceFlatSerializer(serializers.Serializer):
-    namespace = serializers.CharField()
-    devspace_user = serializers.EmailField()
-    cluster = serializers.CharField()
-    cpu_requests = serializers.FloatField()
-    mem_requests_gb = serializers.FloatField()
-
-class ProjectRosterSerializer(serializers.Serializer):
-    namespace = serializers.CharField()
-    owners = serializers.ListField(child=serializers.EmailField())
-    users = serializers.ListField(child=serializers.EmailField())
-
-class RouteExceptionFlatSerializer(serializers.ModelSerializer):
-    namespace = serializers.CharField(source='namespace.name', read_only=True)
-    tenant = serializers.CharField(source='namespace.tenant.name', read_only=True)
-    cluster = serializers.CharField(source='namespace.cluster.name', read_only=True)
-    
-    class Meta:
-        model = RouteException
-        fields = ['namespace', 'tenant', 'cluster', 'is_active', 'request_id', 'granted_at']
-
-class SecurityPostureFlatSerializer(serializers.Serializer):
-    namespace = serializers.CharField()
-    cluster = serializers.CharField()
-    tenant = serializers.CharField()
-    harbor_enabled = serializers.BooleanField()
-    vulnerability_scanning = serializers.BooleanField()
-    auto_sbom_generation = serializers.BooleanField()
-    cve_allowlist_count = serializers.IntegerField()
-    s3_connection_enabled = serializers.BooleanField()
-
-
-class RobotAccountFlatSerializer(serializers.Serializer):
-    namespace = serializers.CharField()
-    account_name = serializers.CharField()
-    is_default = serializers.BooleanField()
-    permissions_count = serializers.IntegerField()
-
-class HelmDeploymentFlatSerializer(serializers.Serializer):
-    namespace = serializers.CharField()
-    cluster = serializers.CharField()
-    chart_name = serializers.CharField()
-    version = serializers.CharField()
-
-class RegistryMirrorFlatSerializer(serializers.Serializer):
-    namespace = serializers.CharField()
-    cluster = serializers.CharField()
-    mirror_name = serializers.CharField()
-    endpoint_url = serializers.URLField()
-    image = serializers.CharField()
-
-class EgressRoutingFlatSerializer(serializers.Serializer):
-    namespace = serializers.CharField()
-    cluster = serializers.CharField()
-    egress_router = serializers.CharField()
-    egress_ips = serializers.ListField(child=serializers.CharField())
-
-class ServiceMeshFlatSerializer(serializers.Serializer):
-    control_plane_namespace = serializers.CharField()
-    cluster = serializers.CharField()
-    domain = serializers.CharField()
-    dataplane_namespaces = serializers.ListField(child=serializers.CharField())
-
-# =====================================================================
-# NAMESPACE SERIALIZERS (UI-DRIVEN)
-#
-# Split list vs detail, mirroring the Tenant pattern. One serializer used to
-# serve both, so every row of a 50- (or 500-) row table carried the raw YAML of
-# every custom resource plus nine relations the table never renders.
-# =====================================================================
+from dashboard.models import Cluster, CustomResource, Namespace, Tenant
 
 class _NamespaceFieldsMixin:
     """Method fields whose output is identical in the list and detail payloads."""
@@ -407,3 +258,46 @@ class NamespaceDetailSerializer(_NamespaceFieldsMixin, serializers.ModelSerializ
 # any importer that has not been updated keeps its current behaviour. Remove
 # once the API layer split (§5) has moved every caller.
 NamespaceSerializer = NamespaceDetailSerializer
+
+
+class ClusterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Cluster
+        fields = '__all__'
+
+class TenantSerializer(serializers.ModelSerializer):
+    active_ns_count = serializers.IntegerField(read_only=True, default=0)
+    class Meta:
+        model = Tenant
+        fields = '__all__'
+
+class TenantDetailSerializer(TenantSerializer):
+    active_namespaces = serializers.SerializerMethodField()
+    decommissioned_namespaces = serializers.SerializerMethodField()
+    has_cso = serializers.SerializerMethodField()
+
+    class Meta(TenantSerializer.Meta):
+        fields = '__all__'
+
+    # The tenant detail panel renders namespaces as a table, so it takes the list
+    # payload. It previously used the full serializer while select_related'ing
+    # only four of the nine relations that serializer touches, so every tenant
+    # detail load fired a burst of per-namespace queries and shipped the raw YAML
+    # of every custom resource.
+    @extend_schema_field(OpenApiTypes.ANY)
+    def get_active_namespaces(self, obj):
+        qs = NamespaceListSerializer.optimize(obj.namespaces.filter(is_decommissioned=False))
+        return NamespaceListSerializer(qs, many=True).data
+
+    @extend_schema_field(OpenApiTypes.ANY)
+    def get_decommissioned_namespaces(self, obj):
+        qs = NamespaceListSerializer.optimize(obj.namespaces.filter(is_decommissioned=True))
+        return NamespaceListSerializer(qs, many=True).data
+        
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_has_cso(self, obj):
+        return obj.namespaces.filter(egress_router__isnull=False).exists()
+
+class UserListSerializer(serializers.Serializer):
+    email = serializers.CharField()
+    access_count = serializers.IntegerField()
