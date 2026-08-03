@@ -13,23 +13,12 @@ and the corresponding records must go, rather than being left behind as ghost
 state.
 """
 from dashboard.models import (
-    EgressRouter, GPUAllocation, HarborConfig, NetworkConnection, NetworkPolicy,
-    Namespace, Operator, ResourceQuota, RobotAccount, RouteException,
-    ServiceMeshControlPlane, RegistryMirror,
+    EgressRouter, NetworkConnection, NetworkPolicy, Namespace, Operator,
+    RobotAccount, RouteException, ServiceMeshControlPlane, RegistryMirror,
 )
 
+from ..sections import apply_registered_sections
 from .users import apply_user_access
-
-
-def to_int(value, default=0):
-    """Coerce a YAML scalar to int. gpuConfig.gpuCount is quoted in the repo
-    ("3"), so int() on the raw value is not safe."""
-    if value is None:
-        return default
-    try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
-        return default
 
 
 def _extract_lifecycle(required_labels, additional_labels):
@@ -155,12 +144,18 @@ def _apply_provisioner(prov, ctx):
         ctx.tenant.siglum = siglum
         ctx.tenant.save()
 
+    # Declarative sections come from the registry in gitops/sections.py.
+    # Adding a plain config block to the chart is an entry in that list and
+    # nothing else -- no parser function, no call added here.
+    apply_registered_sections(prov, ctx)
+
+    # Sections whose shape the declarative form cannot express: a list of
+    # children, a dict of operators, or an ordering rule against another
+    # section. Each is still named in sections.py, so that list stays the
+    # complete index of what the sync understands.
     _apply_network_policy(prov, ctx)
     _apply_route_exception(prov, ctx)
     _apply_operators(prov, ctx)
-    _apply_resource_quota(prov, ctx)
-    _apply_gpu(prov, ctx)
-    _apply_harbor(prov, ctx)
     _apply_robot_accounts(prov, ctx)
     apply_user_access(prov, namespace)
 
@@ -223,59 +218,6 @@ def _apply_operators(prov, ctx):
             # Without this an operator deleted from managedServices kept its
             # last is_enabled value forever and stayed in the analytics counts.
             ctx.state.active_operator_ids.add(operator.id)
-
-
-def _apply_resource_quota(prov, ctx):
-    quota = prov.get('resourceQuota') or {}
-    if quota.get('enabled'):
-        ResourceQuota.objects.update_or_create(
-            namespace=ctx.namespace,
-            defaults={
-                'requests_cpu': quota.get('requestsCpu'),
-                'limits_cpu': quota.get('limitsCpu'),
-                'requests_memory': quota.get('requestsMemory'),
-                'limits_memory': quota.get('limitsMemory'),
-                'requests_storage': quota.get('requestsStorage'),
-            },
-        )
-    else:
-        ResourceQuota.objects.filter(namespace=ctx.namespace).delete()
-
-
-def _apply_gpu(prov, ctx):
-    gpu = prov.get('gpuConfig') or {}
-    if gpu.get('enabled'):
-        limits = gpu.get('limitRange') or {}
-        GPUAllocation.objects.update_or_create(
-            namespace=ctx.namespace,
-            defaults={
-                'allocation_type': gpu.get('type'),
-                'gpu_count': to_int(gpu.get('gpuCount')),
-                'limit_min': limits.get('min'),
-                'limit_max': limits.get('max'),
-                'limit_default': limits.get('default'),
-                'limit_default_request': limits.get('defaultRequest'),
-            },
-        )
-    else:
-        GPUAllocation.objects.filter(namespace=ctx.namespace).delete()
-
-
-def _apply_harbor(prov, ctx):
-    harbor = prov.get('harborOnboardingConfig') or {}
-    if harbor.get('enable'):
-        HarborConfig.objects.update_or_create(
-            namespace=ctx.namespace,
-            defaults={
-                'is_enabled': True,
-                'storage_quota_gb': harbor.get('storageQuota', 0),
-                'vulnerability_scanning': harbor.get('vulnerabilityScanning', False),
-                'auto_sbom_generation': harbor.get('autoSbomGeneration', False),
-                'cve_allowlist': harbor.get('cveAllowlist') or [],
-            },
-        )
-    else:
-        HarborConfig.objects.filter(namespace=ctx.namespace).delete()
 
 
 def _apply_robot_accounts(prov, ctx):

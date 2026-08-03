@@ -40,7 +40,9 @@
             <!-- Siglum Tree Snippet (Huge on the left) -->
             <div class="bento-card lg:col-span-2 flex flex-col">
                 <div class="bento-header"><h4 class="bento-title">Organizational Distribution</h4></div>
-                <div class="bento-body p-4 bg-slate-50/30 overflow-y-auto max-h-[500px] flex-grow" @click="handleTreeClick" v-html="renderedSiglumTree"></div>
+                <div class="bento-body p-4 bg-slate-50/30 overflow-y-auto max-h-[500px] flex-grow">
+                    <siglum-tree :tree="siglumTree" @select="jumpTo('siglums', $event)"></siglum-tree>
+                </div>
             </div>
 
             <!-- Global Software Stack & Lifecycles (Compact on Right) -->
@@ -162,7 +164,9 @@
                                         Organizational Distribution
                                     </h6>
                                 </div>
-                                <div class="p-4 overflow-y-auto max-h-[400px] flex-grow" @click="handleTreeClick" v-html="cm.renderedTree"></div>
+                                <div class="p-4 overflow-y-auto max-h-[400px] flex-grow">
+                                    <siglum-tree :tree="cm.siglum_tree" @select="jumpTo('siglums', $event)"></siglum-tree>
+                                </div>
                             </div>
                             
                             <!-- Col 3: Software Stack -->

@@ -1,0 +1,29 @@
+# Without this file, `COPY dashboard/ /app/dashboard/` ships whatever is in the
+# working tree -- including __pycache__ from the host, which is both dead weight
+# and a correctness hazard: host .pyc files can shadow the copied sources if the
+# interpreter versions happen to line up.
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# The database is rebuilt from Git by sync_gitops; never bake one in.
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# collectstatic runs inside the build. A host copy would be stale and would
+# shadow the freshly generated one.
+staticfiles/
+
+.venv/
+venv/
+.git/
+.gitignore
+
+# Build inputs and developer tooling that the runtime never reads.
+assets/
+tools/
+docs/
+.claude/
+*.md

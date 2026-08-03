@@ -4,12 +4,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ops UI - Control Plane</title>
+    <title>{% block title %}{{ portal_title }}{% endblock %}</title>
     <link href="{% static 'css/tailwind.css' %}" rel="stylesheet">
-    <script src="{% static 'js/vue.global.js' %}"></script>
+    {# Utilities the vendored Tailwind build is missing; see `manage.py build_css`. #}
+    <link href="{% static 'css/utilities.generated.css' %}" rel="stylesheet">
+    {# Hand-written component classes; see the header of the file. #}
+    <link href="{% static 'css/components.css' %}" rel="stylesheet">
+    {% comment %}
+    The development build is ~3.5x larger and carries runtime warnings the
+    browser console shows to end users. Both are vendored so neither the image
+    build nor the runtime needs network access.
+    {% endcomment %}
+    {% if debug %}
+        <script src="{% static 'js/vue.global.js' %}"></script>
+    {% else %}
+        <script src="{% static 'js/vue.global.prod.js' %}"></script>
+    {% endif %}
 </head>
 <body>
     {% block content %}{% endblock %}
-    <script src="{% static 'js/app.js' %}"></script>
+    {% comment %}
+    ES module, so app.js can import from lib/, composables/ and components/
+    without a bundler. Browsers resolve the graph natively; the airgapped build
+    stays a plain file copy.
+    {% endcomment %}
+    <script type="module" src="{% static 'js/app.js' %}"></script>
 </body>
 </html>

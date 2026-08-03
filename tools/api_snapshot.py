@@ -74,7 +74,6 @@ ENDPOINTS = [
     "/api/v2/stack/upstream-mirrors/",
     "/api/v2/network/egress-routing/",
     "/api/v2/network/service-mesh/",
-    "/api/sync/status/",
 ]
 
 api = {}

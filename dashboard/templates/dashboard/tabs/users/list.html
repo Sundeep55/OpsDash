@@ -5,12 +5,13 @@
     </div>
 </div>
 
-<div class="data-table-wrapper flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative z-0">
+<div class="data-table-wrapper flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative z-0"
+     :class="{ 'is-refreshing': usersLoading && usersList.length }">
     <table class="data-table w-full m-0 rounded-none border-0">
         <thead class="bg-slate-50 border-b border-slate-200">
             <tr><th class="py-3 px-4">Email Address</th><th class="py-3 px-4">Projects Accessed</th></tr>
         </thead>
-        <tbody class="divide-y divide-slate-100">
+        <tbody class="divide-y divide-slate-100" :aria-busy="usersLoading ? 'true' : 'false'">
             <!-- RENDER PAGINATED DATA FROM API -->
             <tr v-for="user in usersList" :key="user.email" @click="selectItem('user', user.email)" class="hover:bg-blue-50/30 transition-colors cursor-pointer">
                 <td class="font-bold text-slate-900 flex items-center gap-3 px-4 py-3">
@@ -21,7 +22,8 @@
                 </td>
                 <td class="px-4 py-3"><span class="badge badge-blue !m-0">[[ user.access_count ]] Namespaces</span></td>
             </tr>
-            <tr v-if="!usersList.length"><td colspan="2" class="text-center italic text-slate-500 py-10 bg-slate-50">No users found.</td></tr>
+            <table-skeleton v-if="usersLoading && !usersList.length" :rows="6" :cols="2"></table-skeleton>
+            <tr v-else-if="!usersList.length"><td colspan="2" class="text-center italic text-slate-500 py-10 bg-slate-50">No users found.</td></tr>
         </tbody>
     </table>
 

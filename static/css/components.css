@@ -1,0 +1,105 @@
+/* App-specific component classes.
+ *
+ * Plain hand-written CSS, deliberately not Tailwind. Three stylesheets load, in
+ * this order, each with a different job:
+ *
+ *   tailwind.css              vendored Tailwind build: design tokens, base,
+ *                             the component classes from assets/css/input.css,
+ *                             and the utilities that existed when it was built
+ *   utilities.generated.css   utilities that build were missing, regenerated
+ *                             from those tokens by `manage.py build_css`
+ *   components.css            this file
+ *
+ * Add here when a style is a *component* (a named thing with several
+ * declarations) rather than a utility. Adding a new component class to
+ * assets/css/input.css would need a real Tailwind build, which the airgapped
+ * pipeline cannot run -- this file needs no build at all.
+ *
+ * Use the design tokens from tailwind.css (var(--color-*), var(--spacing))
+ * rather than literal colours, so these stay consistent with the utilities.
+ */
+
+/* Keyboard focus ring. Tailwind's ring-* utilities are absent from the
+ * vendored build and are not mechanically regenerable, so this is the one
+ * definition every focusable control uses. :focus-visible keeps it off mouse
+ * clicks and on for keyboard navigation. */
+.focus-ring:focus {
+    outline: none;
+}
+.focus-ring:focus-visible {
+    outline: 2px solid var(--color-blue-500);
+    outline-offset: 2px;
+    border-radius: var(--radius-md);
+}
+
+/* A list that already has rows and is fetching replacements.
+ *
+ * Skeletons only make sense on a first load. When rows are already on screen a
+ * filter change used to look like nothing happened, so this dims what is now
+ * stale and blocks clicks on rows that are about to be replaced. */
+/* A list that already has rows and is fetching replacements.
+ *
+ * An indeterminate bar across the top of the table, plus blocking clicks on
+ * rows that are about to be replaced. A bar rather than dimming the rows:
+ * opacity proved unreliable here (it does not apply to table-row-group
+ * elements, and did not take on the wrapper either, while pointer-events from
+ * the same rule did), and a moving bar reads as "working" far more clearly
+ * than a fade. */
+.is-refreshing {
+    pointer-events: none;
+    position: relative;
+}
+
+.is-refreshing::after {
+    content: '';
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    height: 3px;
+    z-index: 10;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        var(--color-blue-500) 50%,
+        transparent 100%
+    );
+    background-size: 40% 100%;
+    background-repeat: no-repeat;
+    animation: refreshing-sweep 900ms ease-in-out infinite;
+}
+
+@keyframes refreshing-sweep {
+    0%   { background-position: -40% 0; }
+    100% { background-position: 140% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .is-refreshing::after {
+        animation: none;
+        background: var(--color-blue-500);
+    }
+}
+
+/* Placeholder shown while a list or detail request is in flight. */
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--color-slate-100) 25%,
+        var(--color-slate-200) 37%,
+        var(--color-slate-100) 63%
+    );
+    background-size: 400% 100%;
+    animation: skeleton-shimmer 1.4s ease infinite;
+    border-radius: var(--radius-md);
+}
+
+@keyframes skeleton-shimmer {
+    0%   { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton {
+        animation: none;
+    }
+}

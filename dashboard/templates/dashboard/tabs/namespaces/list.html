@@ -53,10 +53,11 @@
     </div>
 </div>
 
-<div class="data-table-wrapper relative z-0 flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+<div class="data-table-wrapper relative z-0 flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
+     :class="{ 'is-refreshing': namespacesLoading && namespacesList.length }">
     <table class="data-table w-full m-0 rounded-none border-0">
         <thead class="bg-slate-50 border-b border-slate-200"><tr><th class="py-3 px-4">Namespace</th><th class="py-3 px-4">Tenant</th><th class="py-3 px-4">Cluster</th><th class="py-3 px-4">Features & Status</th></tr></thead>
-        <tbody class="divide-y divide-slate-100">
+        <tbody class="divide-y divide-slate-100" :aria-busy="namespacesLoading ? 'true' : 'false'">
             <tr v-for="ns in namespacesList" :key="ns.name" @click="selectItem('namespace', ns.name)" class="hover:bg-blue-50/30 transition-colors cursor-pointer">
                 <td class="font-bold text-slate-900 w-1/4 px-4 py-3">
                     <span class="flex items-center gap-2">
@@ -98,7 +99,8 @@
                     </div>
                 </td>
             </tr>
-            <tr v-if="!namespacesList.length"><td colspan="4" class="text-center italic text-slate-500 py-10 bg-slate-50 border-t border-slate-200">No namespaces match your API criteria.</td></tr>
+            <table-skeleton v-if="namespacesLoading && !namespacesList.length" :rows="8" :cols="4"></table-skeleton>
+            <tr v-else-if="!namespacesList.length"><td colspan="4" class="text-center italic text-slate-500 py-10 bg-slate-50 border-t border-slate-200">No namespaces match your API criteria.</td></tr>
         </tbody>
     </table>
 
