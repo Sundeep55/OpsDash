@@ -6,13 +6,13 @@ class CustomLogger(Logger):
     to prevent them from spamming the OpenShift container logs.
     """
     def access(self, resp, req, environ, request_time):
-        # Mute the silent Vue.js Smart Ping endpoint. Matches both the versioned
-        # path and the legacy unversioned alias.
+        # Mute the sync-status endpoint the UI polls on a timer.
         if req.path.endswith('/sync/status/'):
             return
             
-        # Mute standard Kubernetes health checks (optional, but good practice)
-        if req.path in ['/healthz', '/live', '/ready']:
+        # Mute the kubelet probes. These fire every few seconds for the life
+        # of the pod and would otherwise be the bulk of the access log.
+        if req.path in ('/healthz', '/readyz'):
             return
             
         # Log everything else normally

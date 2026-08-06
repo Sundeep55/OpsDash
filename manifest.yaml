@@ -96,6 +96,57 @@ spec:
               cpu: 500m
               memory: 512Mi
 
+          # --- PROBES ---
+          # Every probe sends an explicit Host header. The kubelet otherwise
+          # uses the pod IP, which is not in DJANGO_ALLOWED_HOSTS, so Django
+          # answers 400 DisallowedHost and every probe fails -- putting the
+          # container into CrashLoopBackOff the moment probes are added.
+          # The alternative is widening ALLOWED_HOSTS to the pod network;
+          # setting the header here keeps that setting tight.
+
+          # entrypoint.sh applies migrations and runs collectstatic before
+          # gunicorn binds. The startup probe gives that up to 150s without
+          # the liveness probe killing it midway, which is what
+          # initialDelaySeconds alone cannot express.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+              httpHeaders:
+                - name: Host
+                  value: ops-control-plane.com
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 3
+
+          # Deliberately does not touch the database. A long sync can hold the
+          # SQLite write lock, and a liveness probe that queried it would
+          # restart the very container holding the connection.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+              httpHeaders:
+                - name: Host
+                  value: ops-control-plane.com
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Checks the database and schema, so a pod with an unmounted or
+          # unmigrated volume is pulled from the Service instead of serving
+          # errors. Not restarted for it -- that would not fix a bad volume.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+              httpHeaders:
+                - name: Host
+                  value: ops-control-plane.com
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
         # CONTAINER B: The GitLab Polling Sidecar
         - name: sync-sidecar
           image: registry.com/images/ops-control-plane:0.1.0
@@ -116,6 +167,34 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+
+          # --- PROBES ---
+          # The sidecar serves no HTTP, so this is an exec probe against the
+          # heartbeat the poll loop writes each iteration. That loop swallows
+          # every exception on purpose -- a network blip must not kill the
+          # daemon -- which means a wedged iteration would otherwise look
+          # healthy indefinitely, since the process is still running.
+          #
+          # bin/sidecar_health.py imports no Django: a probe every 30s for the
+          # life of the pod should not pay Django's startup cost, nor open the
+          # SQLite file the sync is writing.
+          #
+          # The staleness limit derives from POLL_INTERVAL_SECONDS (6x, floor
+          # 300s), so changing the interval in the ConfigMap does not silently
+          # invalidate this probe.
+          livenessProbe:
+            exec:
+              command: ["python3", "/app/bin/sidecar_health.py"]
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          # No readinessProbe here, on purpose. Both containers share this pod,
+          # and the Service selects the pod -- so a sidecar marked unready
+          # would pull the *web server* out of the Service and take the
+          # dashboard offline. A broken sync means stale data, which is far
+          # better than no dashboard. Liveness above still restarts it.
 
 ---
 # 5. INTERNAL SERVICE
