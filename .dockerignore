@@ -27,6 +27,7 @@ tools/
 # ...except the compatibility gate, which the image build runs. Negation must
 # follow the exclusion it reverses.
 !tools/check_py39_compat.py
+!tools/check_templates.py
 docs/
 .claude/
 *.md

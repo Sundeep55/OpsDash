@@ -22,7 +22,7 @@
                 </td>
                 <td class="px-4 py-3"><span class="badge badge-blue !m-0">[[ user.access_count ]] Namespaces</span></td>
             </tr>
-            <table-skeleton v-if="usersLoading && !usersList.length" :rows="6" :cols="2"></table-skeleton>
+            <tr is="vue:table-skeleton" v-if="usersLoading && !usersList.length" :rows="6" :cols="2"></tr>
             <tr v-else-if="!usersList.length"><td colspan="2" class="text-center italic text-slate-500 py-10 bg-slate-50">No users found.</td></tr>
         </tbody>
     </table>

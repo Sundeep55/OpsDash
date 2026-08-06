@@ -80,6 +80,7 @@ COPY bin/ /app/bin/
 # Just the compatibility gate, not all of tools/ -- the rest is developer
 # tooling the runtime never reads.
 COPY tools/check_py39_compat.py /app/tools/
+COPY tools/check_templates.py /app/tools/
 
 # OpenShift Security Fix:
 # OpenShift runs containers with random UIDs, but they are always part of Group 0
@@ -95,6 +96,11 @@ USER 1001
 # image runs 3.12, so such code would build here and crash there -- which is
 # exactly what happened with a PEP 604 union in a dataclass annotation.
 RUN python3 tools/check_py39_compat.py
+
+# Fail the build on a Vue component the HTML parser would relocate. Such a
+# template serves fine and renders blank under the production Vue build, so the
+# symptom appears only after DEBUG=False -- usually the first real deploy.
+RUN python3 tools/check_templates.py
 
 # Fail the build if a template references a CSS class the stylesheet lacks.
 # Without this the class silently resolves to nothing and the element renders

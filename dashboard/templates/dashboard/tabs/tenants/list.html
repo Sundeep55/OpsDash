@@ -55,7 +55,7 @@
                     <span v-else class="badge badge-green !m-0">[[ t.active_ns_count || 0 ]] Active NS</span>
                 </td>
             </tr>
-            <table-skeleton v-if="tenantsLoading && !tenantsList.length" :rows="8" :cols="4"></table-skeleton>
+            <tr is="vue:table-skeleton" v-if="tenantsLoading && !tenantsList.length" :rows="8" :cols="4"></tr>
             <tr v-else-if="!tenantsList.length"><td colspan="4" class="text-center italic text-slate-500 py-10 bg-slate-50 border-t border-slate-200">No tenants match your criteria.</td></tr>
         </tbody>
     </table>

@@ -99,7 +99,7 @@
                     </div>
                 </td>
             </tr>
-            <table-skeleton v-if="namespacesLoading && !namespacesList.length" :rows="8" :cols="4"></table-skeleton>
+            <tr is="vue:table-skeleton" v-if="namespacesLoading && !namespacesList.length" :rows="8" :cols="4"></tr>
             <tr v-else-if="!namespacesList.length"><td colspan="4" class="text-center italic text-slate-500 py-10 bg-slate-50 border-t border-slate-200">No namespaces match your API criteria.</td></tr>
         </tbody>
     </table>
