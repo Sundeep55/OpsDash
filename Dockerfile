@@ -69,6 +69,8 @@ COPY dashboard/ /app/dashboard/
 COPY static/ /app/static/
 COPY entrypoint.sh /app/
 COPY gunicorn.conf.py /app/
+# Probe script for the sidecar's exec liveness check.
+COPY bin/ /app/bin/
 
 # OpenShift Security Fix:
 # OpenShift runs containers with random UIDs, but they are always part of Group 0

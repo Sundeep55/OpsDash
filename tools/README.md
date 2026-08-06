@@ -67,9 +67,16 @@ diff -r /tmp/snap_before /tmp/snap_after
 ```
 
 `_db.json` rows are sorted by full content and `_api.json` keys are sorted, so
-ordering never produces a false diff. The only expected differences are
-`SystemSyncStatus.last_sync_time` and the sync-status endpoints, which carry a
-wall-clock timestamp.
+ordering never produces a false diff.
+
+Three differences are expected and do not indicate a regression:
+
+- `SystemSyncStatus.last_sync_time` and the sync-status endpoint — a wall-clock
+  timestamp, different on every run.
+- `routeException.daysActive` on any namespace with an active route exception —
+  it is `(today - granted_at).days`, so it increments at every midnight. If you
+  compare snapshots taken on different days, every endpoint carrying a
+  namespace payload will differ by this one field.
 
 A refactor that is meant to preserve behaviour should produce no other
 difference. Anything else is a bug in the refactor, not an improvement.

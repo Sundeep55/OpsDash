@@ -7,6 +7,30 @@ from django.core.management import call_command
 
 from dashboard.models import SyncAlreadyRunning
 
+# Touched at the end of every poll iteration so the container's liveness probe
+# can tell "looping" from "wedged". The loop swallows every exception by design
+# -- a network blip must not kill the daemon -- which also means a permanently
+# stuck iteration would otherwise look healthy forever, because the process is
+# still running and nothing crashes.
+#
+# /tmp rather than the PVC: it is per-container, writable under OpenShift's
+# random UID, and must not survive a restart.
+HEARTBEAT_PATH = os.environ.get('SIDECAR_HEARTBEAT_PATH', '/tmp/sidecar-heartbeat')
+
+
+def touch_heartbeat(path=HEARTBEAT_PATH):
+    """Record that the poll loop completed an iteration.
+
+    Best-effort: a failure to write must never take down a daemon that is
+    otherwise doing its job. A stale file trips the probe soon enough anyway.
+    """
+    try:
+        with open(path, 'w') as fh:
+            fh.write(str(int(time.time())))
+    except OSError:
+        pass
+
+
 class Command(BaseCommand):
     help = 'Runs as a daemon watching GitLab for successful pipelines to trigger a database sync'
 
@@ -32,6 +56,10 @@ class Command(BaseCommand):
 
         last_pipeline_id = None
         self.stdout.write(self.style.SUCCESS(f"Starting GitLab Polling Daemon (Interval: {poll_interval}s)..."))
+
+        # Before the baseline sync, which at full scale takes long enough that
+        # the probe would otherwise see no heartbeat at all on a cold start.
+        touch_heartbeat()
 
         # Always run a baseline sync when the container first starts
         self.stdout.write(self.style.NOTICE("Running initial baseline sync on startup..."))
@@ -70,4 +98,8 @@ class Command(BaseCommand):
                 # Catch network blips without crashing the daemon
                 self.stdout.write(self.style.WARNING(f"Failed to poll GitLab API: {e}"))
 
+            # Outside the try: reaching here means the iteration finished, even
+            # if GitLab was unreachable. Retrying is the daemon working, not
+            # failing -- an unreachable GitLab should not restart the container.
+            touch_heartbeat()
             time.sleep(poll_interval)
