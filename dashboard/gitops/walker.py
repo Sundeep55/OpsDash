@@ -15,19 +15,15 @@ writes. Keeping them apart makes the layout rules readable on their own.
 import logging
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 from dashboard.models import Cluster, Namespace, Tenant
 
+from .layout import layout
+
 logger = logging.getLogger(__name__)
 
-# Not a per-namespace config file: a cluster-wide pool definition that would
-# otherwise be parsed as though it belonged to whatever tenant directory it sits in.
-SKIP_FILENAMES = {'egressip-pool.yaml'}
-
 YAML_SUFFIXES = ('.yaml', '.yml')
-
-DECOMMISSIONED_TENANTS_DIR = '.decommissioned_tenants'
-DECOMMISSIONED_NAMESPACES_DIR = '.decommissioned_namespaces'
 
 
 @dataclass(frozen=True)
@@ -39,13 +35,15 @@ class FileLocation:
     path_parts: tuple
     cluster_name: str
     tenant_name: str
-    namespace_name: str | None
+    # typing.Optional, not `str | None`: PEP 604 unions in an evaluated
+    # annotation need Python 3.10, and this runs on 3.9.
+    namespace_name: Optional[str]
     is_tenant_decommissioned: bool
     is_namespace_decommissioned: bool
 
     @property
     def is_template(self):
-        return 'templates' in self.path_parts
+        return layout().templates_dir in self.path_parts
 
 
 def locate(full_path, rel_path):
@@ -54,12 +52,13 @@ def locate(full_path, rel_path):
     Returns None for files too shallow to identify a tenant, which is how
     top-level repo files (README, CI config) are ignored.
     """
+    names = layout()
     path_parts = tuple(rel_path.split('/'))
     if len(path_parts) < 2:
         return None
 
     cluster_name = path_parts[0]
-    is_tenant_decomm = path_parts[1] == DECOMMISSIONED_TENANTS_DIR
+    is_tenant_decomm = path_parts[1] == names.decommissioned_tenants_dir
 
     if is_tenant_decomm:
         if len(path_parts) < 3:
@@ -75,9 +74,9 @@ def locate(full_path, rel_path):
     is_ns_decomm = is_tenant_decomm
     namespace_name = None
 
-    if DECOMMISSIONED_NAMESPACES_DIR in path_parts:
+    if names.decommissioned_namespaces_dir in path_parts:
         is_ns_decomm = True
-        idx = path_parts.index(DECOMMISSIONED_NAMESPACES_DIR) + 1
+        idx = path_parts.index(names.decommissioned_namespaces_dir) + 1
         if idx < len(path_parts) - 1:
             namespace_name = path_parts[idx].split('_')[0]
     elif len(path_parts) > ns_idx + 1:
@@ -99,10 +98,11 @@ def locate(full_path, rel_path):
 
 def iter_locations(repo_path):
     """Yield a FileLocation for every YAML file describing tenant config."""
+    skip = layout().skip_filenames
     for root, dirs, files in os.walk(repo_path):
         dirs[:] = [d for d in dirs if not d.startswith('.git')]
         for filename in files:
-            if filename in SKIP_FILENAMES or not filename.endswith(YAML_SUFFIXES):
+            if filename in skip or not filename.endswith(YAML_SUFFIXES):
                 continue
 
             full_path = os.path.join(root, filename)

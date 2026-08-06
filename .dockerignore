@@ -24,6 +24,9 @@ venv/
 # Build inputs and developer tooling that the runtime never reads.
 assets/
 tools/
+# ...except the compatibility gate, which the image build runs. Negation must
+# follow the exclusion it reverses.
+!tools/check_py39_compat.py
 docs/
 .claude/
 *.md

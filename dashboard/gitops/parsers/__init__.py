@@ -5,6 +5,7 @@ the database. None of them read files or catch exceptions: the caller owns the
 per-file transaction and decides what a failure means.
 """
 from dataclasses import dataclass
+from typing import Optional
 
 from dashboard.models import Cluster, Namespace, Tenant
 
@@ -28,5 +29,7 @@ class ParseContext:
 
     cluster: Cluster
     tenant: Tenant
-    namespace: Namespace | None
+    # typing.Optional, not `Namespace | None`: PEP 604 unions in an evaluated
+    # annotation need Python 3.10, and this runs on 3.9.
+    namespace: Optional[Namespace]
     state: object  # SyncState; untyped here to avoid a circular import

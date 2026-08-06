@@ -14,6 +14,7 @@ import os
 from django.db import transaction
 
 from . import walker
+from .layout import layout
 from .parsers import (
     ParseContext, parse_chart, parse_namespace_values, parse_tenant_metadata,
     parse_templates,
@@ -22,9 +23,6 @@ from .reconciler import prune
 from .state import SyncState
 
 logger = logging.getLogger(__name__)
-
-TENANT_METADATA_FILE = 'tenant-metadata.yaml'
-CHART_FILE = 'Chart.yaml'
 
 __all__ = ['run_sync', 'SyncState']
 
@@ -58,9 +56,10 @@ def _process_file(location, content, state):
         if not payload:
             return
 
-        if location.filename == TENANT_METADATA_FILE:
+        names = layout()
+        if location.filename == names.tenant_metadata_file:
             parse_tenant_metadata(payload, ctx)
-        elif location.filename == CHART_FILE:
+        elif location.filename == names.chart_file:
             parse_chart(payload, ctx)
         else:
             parse_namespace_values(payload, ctx)

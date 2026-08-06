@@ -17,6 +17,7 @@ from dashboard.models import (
     RobotAccount, RouteException, ServiceMeshControlPlane, RegistryMirror,
 )
 
+from ..layout import layout
 from ..sections import apply_registered_sections
 from .users import apply_user_access
 
@@ -35,10 +36,11 @@ def parse_namespace_values(payload, ctx):
     if ctx.namespace is None:
         return
 
-    egress = payload.get('egress') or {}
-    prov = payload.get('namespace-provisioner') or {}
-    mesh = payload.get('service-mesh') or {}
-    registry = payload.get('registry-config') or {}
+    names = layout()
+    egress = payload.get(names.egress_key) or {}
+    prov = payload.get(names.provisioner_key) or {}
+    mesh = payload.get(names.service_mesh_key) or {}
+    registry = payload.get(names.registry_config_key) or {}
 
     if egress:
         _apply_egress(egress, ctx)

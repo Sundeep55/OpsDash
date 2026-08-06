@@ -137,6 +137,43 @@ USE_I18N = True
 USE_TZ = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# =====================================================================
+# GITOPS REPOSITORY LAYOUT
+# =====================================================================
+# The chart names, file names and directory names the sync matches on. The
+# defaults are the placeholder names used by this repository's fixtures and
+# docs; the real ones differ, so set them here or via the environment.
+#
+# Every value is an exact match, not a pattern. See dashboard/gitops/layout.py
+# for what each one selects, and docs/adding-a-section.md for adding a new
+# block to the provisioner chart.
+#
+# Overriding via the ConfigMap means a rename in the GitOps repo does not need
+# an image rebuild.
+GITOPS_LAYOUT = {
+    # Top-level keys inside a namespace's values file.
+    'provisioner_key': os.environ.get('GITOPS_PROVISIONER_KEY', 'namespace-provisioner'),
+    'egress_key': os.environ.get('GITOPS_EGRESS_KEY', 'egress'),
+    'service_mesh_key': os.environ.get('GITOPS_SERVICE_MESH_KEY', 'service-mesh'),
+    'registry_config_key': os.environ.get('GITOPS_REGISTRY_CONFIG_KEY', 'registry-config'),
+
+    # File names.
+    'tenant_metadata_file': os.environ.get('GITOPS_TENANT_METADATA_FILE', 'tenant-metadata.yaml'),
+    'chart_file': os.environ.get('GITOPS_CHART_FILE', 'Chart.yaml'),
+
+    # Directory names.
+    'templates_dir': os.environ.get('GITOPS_TEMPLATES_DIR', 'templates'),
+    'decommissioned_tenants_dir': os.environ.get('GITOPS_DECOMMISSIONED_TENANTS_DIR', '.decommissioned_tenants'),
+    'decommissioned_namespaces_dir': os.environ.get('GITOPS_DECOMMISSIONED_NAMESPACES_DIR', '.decommissioned_namespaces'),
+
+    # Comma-separated. Files ignored outright, wherever they appear.
+    'skip_filenames': tuple(
+        name.strip()
+        for name in os.environ.get('GITOPS_SKIP_FILENAMES', 'egressip-pool.yaml').split(',')
+        if name.strip()
+    ),
+}
+
 PORTAL_NAME = "Ops Control Plane"
 PORTAL_TITLE = "Airbus IDP Dashboard"
 GIT_BROWSER_URL = os.environ.get('GIT_BROWSER_URL', '')

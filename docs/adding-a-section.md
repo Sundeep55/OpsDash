@@ -1,7 +1,17 @@
 # Adding a `values.yaml` section
 
-When the `namespace-provisioner` chart grows a new config block, this is how it
-reaches the dashboard.
+When the provisioner chart grows a new config block, this is how it reaches the
+dashboard.
+
+> **Names in this document are placeholders.** `namespace-provisioner`,
+> `tenant-metadata.yaml`, `Chart.yaml` and the rest are the defaults used by the
+> fixtures; the real repository uses different ones. They are all declared in
+> `GITOPS_LAYOUT` in `ops_portal/settings.py` and overridable per environment
+> variable, so nothing below needs editing when a name differs — see
+> `dashboard/gitops/layout.py`.
+>
+> The keys *inside* a block (`resourceQuota`, `gpuConfig`, `requiredLabels` …)
+> are real and are matched literally by the section registry.
 
 For the common shape — a block with an on/off key and some scalar fields — it is
 **a model and one registry entry**. No parser function, no serializer field, no

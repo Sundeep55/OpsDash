@@ -6,7 +6,7 @@
 # forward, which both shrinks the image and removes tooling that shows up in CVE
 # scans without ever being executed in production.
 # =============================================================================
-FROM python:3.13-slim AS builder
+FROM python:3.12-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -39,10 +39,16 @@ RUN find /opt/venv -type d -name '__pycache__' -prune -exec rm -rf {} + && \
 # =============================================================================
 # Stage 2: runtime.
 # =============================================================================
-FROM python:3.13-slim
+FROM python:3.12-slim
 
-# Python 3.13: 3.9 reached end of life in October 2025 and stopped receiving
-# security patches. 3.13 is within Django 5.2 LTS's supported range (3.10-3.13).
+# Python 3.12: the newest release Django 4.2 supports (3.8-3.12), and still
+# receiving security patches. The development boxes run 3.9, which is itself
+# end-of-life -- so the *code* is kept importable on 3.9 (enforced by
+# tools/check_py39_compat.py) while the image runs a supported interpreter.
+#
+# If the approved base-image list does not carry 3.12, 3.11 or 3.10 work
+# equally well; do not drop to 3.9, which stopped receiving security fixes in
+# October 2025.
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -71,6 +77,9 @@ COPY entrypoint.sh /app/
 COPY gunicorn.conf.py /app/
 # Probe script for the sidecar's exec liveness check.
 COPY bin/ /app/bin/
+# Just the compatibility gate, not all of tools/ -- the rest is developer
+# tooling the runtime never reads.
+COPY tools/check_py39_compat.py /app/tools/
 
 # OpenShift Security Fix:
 # OpenShift runs containers with random UIDs, but they are always part of Group 0
@@ -81,6 +90,11 @@ RUN mkdir -p /app/staticfiles && \
 
 # Switch to the standard non-root user for execution
 USER 1001
+
+# Fail the build on syntax the development boxes' Python 3.9 cannot run. This
+# image runs 3.12, so such code would build here and crash there -- which is
+# exactly what happened with a PEP 604 union in a dataclass annotation.
+RUN python3 tools/check_py39_compat.py
 
 # Fail the build if a template references a CSS class the stylesheet lacks.
 # Without this the class silently resolves to nothing and the element renders
