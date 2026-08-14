@@ -19,8 +19,8 @@ spec:
       description: "Select the Subnet and the number of IPs to assign to EgressIP"
       options:
         - "NONE"
-        - "192.168.2.0/24(1)IP"
-        - "192.168.2.0/24(2)IPs"
+        - "x.x.1.0/24(1)IP"
+        - "x.x.2.0/24(2)IPs"
       default: "NONE"
     TARGET_CLUSTER:
       description: "The target DCS cluster where the project will be deployed (e.g., qa-w1)."
