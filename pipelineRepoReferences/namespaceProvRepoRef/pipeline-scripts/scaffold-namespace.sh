@@ -1,149 +1,35 @@
 #!/bin/bash
+# =============================================================================
+# scaffold-namespace.sh  (was scaffold.sh)
+#
+# Creates or updates a namespace, or creates a tenant EgressIP cluster-scope
+# object. Which one is decided by OPERATION, via INPUT_CREATE_CSO.
+#
+# WHERE VALIDATION LIVES NOW
+# --------------------------
+# This script used to open with a 126-line validate_inputs that normalised case,
+# compared every field against the placeholder string declared in
+# .gitlab-ci.yml, and parsed DD/MM/YYYY timestamps. All of that has moved to
+# request-schema.yaml, enforced by load-payload.sh before the first line below
+# runs.
+#
+# The split is: the schema owns syntax — presence, type, enum, format,
+# normalisation, and cross-field rules like "ARD is required for prod". This
+# script owns what the schema cannot know, which is everything that needs the
+# repository on disk: does the tenant directory exist, is the ArgoCD app name
+# already taken, does the mesh this namespace wants to join actually exist.
+# Those live in sanity_checks and are untouched.
+#
+# Keeping a second copy of the syntax rules here as belt-and-braces was the
+# original design, and it is what produced a siglum check that could never fire
+# — the sentinel was written in a different case from the value it was compared
+# against. One declaration, one place to look.
+# =============================================================================
 set -e
 
-# --- Helper Functions ---
-log_info() {
-    if [[ "${DEBUG}" == "true" ]]; then
-        echo -e "[$(date +'%H:%M:%S')] -> $1"
-    else
-        echo "-> $1"
-    fi
-}
-
-log_error() {
-    if [[ "${DEBUG}" == "true" ]]; then
-        echo -e "[$(date +'%H:%M:%S')] ERROR: $1"
-    else
-        echo "ERROR: $1"
-    fi
-}
-
-function validate_inputs() {
-    echo "==========================================================================="
-    echo "                            Validate Inputs                                "
-    echo "==========================================================================="
-    log_info "Validating inputs..."
-
-    # Normalize inputs trim spaces and convert to lowercase or uppercase
-    INPUT_REQUESTER_EMAIL=$(echo "$INPUT_REQUESTER_EMAIL" | xargs | tr '[:upper:]' '[:lower:]')
-    INPUT_REQUEST_ID=$(echo "$INPUT_REQUEST_ID" | xargs | tr '[:lower:]' '[:upper:]')
-    INPUT_SIGLUM=$(echo "$INPUT_SIGLUM" | xargs | tr '[:lower:]' '[:upper:]')
-    INPUT_COST_CENTER=$(echo "$INPUT_COST_CENTER" | xargs | tr '[:lower:]' '[:upper:]')
-    INPUT_TENANT_NAME=$(echo "$INPUT_TENANT_NAME" | xargs | tr '[:upper:]' '[:lower:]')
-    INPUT_TENANT_PROJECT=$(echo "$INPUT_TENANT_PROJECT" | xargs | tr '[:upper:]' '[:lower:]')
-    INPUT_TARGET_CLUSTER=$(echo "$INPUT_TARGET_CLUSTER" | xargs | tr '[:upper:]' '[:lower:]')
-    INPUT_LIFECYCLE=$(echo "$INPUT_LIFECYCLE" | xargs | tr '[:upper:]' '[:lower:]')
-
-    # Check Email
-    case "$INPUT_REQUESTER_EMAIL" in
-      "projectowner@zzz.com" | \
-      "user@example.com" | \
-      "projectowneruser01@zzz.com" | \
-      "projectowneruser02@zzz.com" | \
-      "projectuser01@zzz.com" | \
-      "projectuser02@zzz.com")
-          log_error "'REQUESTER_EMAIL' was left as default ($INPUT_REQUESTER_EMAIL). Please provide the real requester's email."
-          exit 1
-          ;;
-      *)
-          ;;
-    esac
-
-    # Check Request ID Default
-    [[ "$INPUT_REQUEST_ID" == "REQ00000000000XX" ]] && { log_error "Invalid Request ID (Default detected)."; exit 1; }
-
-    # Check Cost Center
-    if [[ "$INPUT_COST_CENTER" == "XX/YY0000-00000" ]]; then
-        log_error "Cost Center code is set to default."
-        log_error "Please enter a valid code OR clear the field for Non-Billable tenants."
-        exit 1
-    fi
-
-    # Validate Cost Center format (Alphanumeric, -, _, ., /)
-    if [[ -n "$INPUT_COST_CENTER" && ! "$INPUT_COST_CENTER" =~ ^[A-Za-z0-9._/-]+$ ]]; then
-        log_error "Invalid Cost Center format: $INPUT_COST_CENTER"
-        log_error "Allowed characters: Letters, Numbers, '-', '_', '.', '/'"
-        exit 1
-    fi
-
-    # Check Siglum Default
-    if [[ "$INPUT_SIGLUM" == "tdxx" ]]; then
-        log_error "Siglum code is set to default."
-        log_error "Please enter a valid Siglum code."
-        exit 1
-    fi
-
-    if [[ -z "$INPUT_COST_CENTER" ]]; then
-        log_info "Cost Center code is empty. Proceeding as Non-Billable tenant."
-    fi
-
-    # Check Timestamp Default
-    [[ "$INPUT_REQUESTED_TIMESTAMP" == "01/04/2026 13:47:48" ]] && { log_error "Invalid Timestamp (Default detected)."; exit 1; }
-
-    # Validate Timestamp Regex (Expected: DD/MM/YYYY HH:MM:SS)
-    if [[ ! "$INPUT_REQUESTED_TIMESTAMP" =~ ^[0-9]{2}/[0-9]{2}/[0-9]{4}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
-        log_error "Invalid Timestamp format: $INPUT_REQUESTED_TIMESTAMP."
-        log_error "Expected input format: DD/MM/YYYY HH:MM:SS"
-        exit 1
-    fi
-
-    # Parse components using slash (/), space ( ), and colon (:) as separators
-    IFS='/ :' read -r V_DAY V_MONTH V_YEAR V_HOUR V_MINUTE V_SECOND <<< "$INPUT_REQUESTED_TIMESTAMP"
-    
-    # Validate logical constraints (using base 10 to prevent octal evaluation errors)
-    if (( 10#$V_MONTH < 1 || 10#$V_MONTH > 12 )); then log_error "Invalid Month: $V_MONTH"; exit 1; fi
-    if (( 10#$V_DAY < 1 || 10#$V_DAY > 31 )); then log_error "Invalid Day: $V_DAY"; exit 1; fi
-    if (( 10#$V_HOUR < 0 || 10#$V_HOUR > 23 )); then log_error "Invalid Hour: $V_HOUR"; exit 1; fi
-    if (( 10#$V_MINUTE < 0 || 10#$V_MINUTE > 59 )); then log_error "Invalid Minute: $V_MINUTE"; exit 1; fi
-    if (( 10#$V_SECOND < 0 || 10#$V_SECOND > 59 )); then log_error "Invalid Second: $V_SECOND"; exit 1; fi
-
-    # Convert to standard ISO 8601 format
-    REQUESTED_TIMESTAMP="${V_YEAR}-${V_MONTH}-${V_DAY}T${V_HOUR}:${V_MINUTE}:${V_SECOND}"
-    echo "Successfully parsed requested timestamp. Using ISO 8601 format: $REQUESTED_TIMESTAMP"
-
-    # Validate ARD input for Prod Namespaces
-    if [[ "$INPUT_LIFECYCLE" == "prod" ]]; then
-        if [[ -z "$INPUT_ARD_LINK" ]]; then
-            log_error "For PROD namespaces ARD is mandatory and this field can not be empty"
-            log_error "Please provide a valid ARD link"
-            exit 1
-        fi
-        # Check ARD Default
-        if [[ "$INPUT_ARD_LINK" == "https://googlespace.zzz.com/path/to/my/ard.docx" ]]; then
-            log_error "ARD link is set to default."
-            log_error "Please enter a valid ARD link."
-            exit 1
-        fi
-    fi
-
-    # Restriction for project name check
-    RESTRICTED_PREFIX=("dcsc-ds" "dcsc-cso")
-    for i in "${RESTRICTED_PREFIX[@]}"; do
-        if [[ "${INPUT_TENANT_PROJECT}" == "$i"* ]]; then
-            log_info "Validation Failed: TENANT_PROJECT Starts with ${i} This prefix is restrictead"
-            exit 1
-        fi
-    done
-
-    # --- GPU Validation ---
-    if [[ "$INPUT_GPU_ENABLED" == "true" && ("$INPUT_GPU_TIERS" == "None" || -z "$INPUT_GPU_TIERS") ]]; then
-        log_error "GPU is ENABLED, but no Tier was defined. Please select a valid tier (gpu-standard, gpu-dedicated)."
-        exit 1
-    elif [[ "$INPUT_GPU_ENABLED" != "true" && "$INPUT_GPU_TIERS" != "None" ]]; then
-        log_error "GPU is set to FALSE, but a Tier ($INPUT_GPU_TIERS) was provided. Please clear the Tier field or set GPU to True."
-        exit 1
-    fi
- 
-     # Validate Route Exception rules
-    if [[ "$INPUT_ROUTE_EXCEPTION" == "true" ]]; then
-        if [[ "$INPUT_LIFECYCLE" != "dev" ]]; then
-            log_error "Route Exception can only be enabled for 'dev' lifecycle."
-            exit 1
-        fi
-    fi
-
-    log_info "Input Validation Complete."
-}
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_HERE}/common.sh"
+source "${_HERE}/load-payload.sh"
 
 function prepare_variables() {
     echo "==========================================================================="
@@ -181,15 +67,27 @@ function prepare_variables() {
     CUSTOMER_DIR="${INPUT_TARGET_CLUSTER}/${TENANT_NAME}"
 
     # Check if user provided an EXACT existing project to UPDATE
-    if [ -n "$INPUT_TENANT_PROJECT" ] && [ "$INPUT_TENANT_PROJECT" != "dcsc-" ] && [ -d "${CUSTOMER_DIR}/${INPUT_TENANT_PROJECT}" ]; then
-        TENANT_PROJECT="${INPUT_TENANT_PROJECT}"
+    if [ -n "$INPUT_NAMESPACE_NAME" ] && [ "$INPUT_NAMESPACE_NAME" != "dcsc-" ] && [ -d "${CUSTOMER_DIR}/${INPUT_NAMESPACE_NAME}" ]; then
+        TENANT_PROJECT="${INPUT_NAMESPACE_NAME}"
         log_info "Existing project provided for update: $TENANT_PROJECT"
-    elif [[ "${INPUT_CSO_CREATE,,}" == "true" ]]; then
+    elif [[ "${INPUT_CREATE_CSO,,}" == "true" ]]; then
         # CSO overrides project naming completely, bypassing empty namespace checks
         TENANT_PROJECT_FULL="dcsc-cso-${INPUT_TENANT_NAME}"
         TENANT_PROJECT=$(echo "$TENANT_PROJECT_FULL" | head -c $((NS_MAX_CHARS - 12)))
         log_info "CSO creation selected. Project name set to: $TENANT_PROJECT"
-    elif [[ "${INPUT_NAMESPACE_IS_FOR_DEVSPACE,,}" == "true" ]]; then
+    elif [[ "${INPUT_CREATE_SERVICE_MESH,,}" == "true" ]]; then
+        # BUG FIX. Deploying a mesh was unreachable: sanity_checks requires
+        # TENANT_PROJECT to equal "dcsc-${TENANT_NAME}-service-mesh", but with no
+        # branch here the name fell through to the generic rule below and picked
+        # up the random suffix -- "dcsc-tenanta-service-mesh-a1b2" -- so the
+        # equality could never hold, on any input. The operator could not even
+        # pre-type the suffix, because it is regenerated on every run.
+        #
+        # CSO and DevSpace both override the name here without a suffix; mesh was
+        # the one that did not. This is the missing branch.
+        TENANT_PROJECT="dcsc-${TENANT_NAME}-service-mesh"
+        log_info "Service mesh deployment selected. Project name set to: $TENANT_PROJECT"
+    elif [[ "${INPUT_IS_DEVSPACE,,}" == "true" ]]; then
         # DevSpace overrides project naming completely, bypassing empty namespace checks
         # 1. Extract everything before the '@' symbol
         EMAIL_PREFIX="${INPUT_REQUESTER_EMAIL%%@*}"
@@ -200,7 +98,7 @@ function prepare_variables() {
         TENANT_PROJECT="dcsc-ds-${FORMATTED_USER}-${RANDOM_SUFFIX}"
     else
         # Tenant Project Prefix and Suffix Logic
-        if [[ "$INPUT_TENANT_PROJECT" == "dcsc-" ]] || [[ -z "$INPUT_TENANT_PROJECT" ]]; then
+        if [[ "$INPUT_NAMESPACE_NAME" == "dcsc-" ]] || [[ -z "$INPUT_NAMESPACE_NAME" ]]; then
             # Prevent duplicate ambiguous namespaces if tenant already exists
             if [[ -d "$TENANT_DIR" ]]; then
                 echo "==========================================================================="
@@ -212,10 +110,10 @@ function prepare_variables() {
             fi
             log_info "Project name left as default. Defaulting to Tenant Name."
             TENANT_PROJECT_INPUT="${INPUT_TENANT_NAME}"
-        elif [[ "$INPUT_TENANT_PROJECT" == dcsc-* ]]; then
-            TENANT_PROJECT_INPUT="${INPUT_TENANT_PROJECT#dcsc-}"
+        elif [[ "$INPUT_NAMESPACE_NAME" == dcsc-* ]]; then
+            TENANT_PROJECT_INPUT="${INPUT_NAMESPACE_NAME#dcsc-}"
         else
-            TENANT_PROJECT_INPUT="$INPUT_TENANT_PROJECT"
+            TENANT_PROJECT_INPUT="$INPUT_NAMESPACE_NAME"
         fi
 
         MAX_PROJECT_CHARS=$((NS_MAX_CHARS - NS_FIX_CHARS))
@@ -239,7 +137,10 @@ function prepare_variables() {
 
     # Set Vars
     CURRENT_OFFSET=$(date +%z | sed 's/^\(...\)\(..\)$/\1:\2/')
-    REQUESTED_TIMESTAMP="${REQUESTED_TIMESTAMP}${CURRENT_OFFSET}"
+    # Already ISO 8601: the operator pastes DD/MM/YYYY HH:MM:SS from MyITSM and
+    # load-payload.sh reassembles it, so the conversion validate_inputs used to
+    # do here now happens once for every operation instead of once per script.
+    REQUESTED_TIMESTAMP="${INPUT_REQUESTED_TIMESTAMP}${CURRENT_OFFSET}"
     PROVISION_TIMESTAMP=$(date +'%Y-%m-%dT%H:%M:%S')
     PROVISION_TIMESTAMP="${PROVISION_TIMESTAMP}${CURRENT_OFFSET}"
 
@@ -289,7 +190,7 @@ function sanity_checks() {
     fi
 
     # Check Mesh Conflicts
-    if [ "$INPUT_DEPLOY_MESH" = "true" ] && [ "$IS_EXISTING_PROJECT" == "false" ]; then
+    if [ "$INPUT_CREATE_SERVICE_MESH" = "true" ] && [ "$IS_EXISTING_PROJECT" == "false" ]; then
         if [ -f "$MESH_VALUES_FILE_PATH" ]; then
             log_error "Service mesh already exists at '$MESH_VALUES_FILE_PATH'."
             exit 1
@@ -311,7 +212,7 @@ function sanity_checks() {
     fi
 
     # Check if the user already has a devspace namespace
-    if [[ "${INPUT_NAMESPACE_IS_FOR_DEVSPACE,,}" == "true" ]] && [ "$IS_EXISTING_PROJECT" == "false" ]; then
+    if [[ "${INPUT_IS_DEVSPACE,,}" == "true" ]] && [ "$IS_EXISTING_PROJECT" == "false" ]; then
       RESULT=$(find "$INPUT_TARGET_CLUSTER" -name "values.yaml" -type f -exec yq e 'select((."dcs-namespace-provisioner".devspaceConfig.isDevspace == true or ."dcs-namespace-provisioner".devspaceConfig.isDevspace == "true") and ."dcs-namespace-provisioner".devspaceConfig.devspaceUser == "'"${INPUT_REQUESTER_EMAIL}"'") | ."dcs-namespace-provisioner".project_namespace + "|" + ."dcs-namespace-provisioner".requiredLabels."dcs.zzz.com/tenant_name"' {} + 2>/dev/null | grep -v -e '^null|null$' -e '^|$' -e '^$' || true)
 
       if [[ -n "$RESULT" ]]; then
@@ -324,8 +225,8 @@ function sanity_checks() {
       fi
     fi
 
-    if [ "$INPUT_ADD_NS_TO_MESH" = "true" ]; then
-        if [ "$INPUT_DEPLOY_MESH" = "true" ]; then
+    if [ "$INPUT_JOIN_SERVICE_MESH" = "true" ]; then
+        if [ "$INPUT_CREATE_SERVICE_MESH" = "true" ]; then
             log_error "Cannot Deploy Mesh AND add namespace to it simultaneously."
             exit 1
         fi
@@ -359,14 +260,14 @@ function update_metadata() {
         .requested_timestamp = strenv(REQUESTED_TIMESTAMP) |
         .provision_timestamp = strenv(PROVISION_TIMESTAMP) |
         .gpu_enabled = strenv(INPUT_GPU_ENABLED) |
-        with(select(strenv(INPUT_GPU_ENABLED) == "true"); .gpu_tier = strenv(INPUT_GPU_TIERS)) |
+        with(select(strenv(INPUT_GPU_ENABLED) == "true"); .gpu_tier = strenv(INPUT_GPU_TIER)) |
         .active_namespaces = [] |
         .active_cso = []
       ' > "$TENANT_METADATA_FILE"
     fi
 
     # HANDLE CSO LOGIC
-    if [[ "${INPUT_CSO_CREATE,,}" == "true" ]]; then
+    if [[ "${INPUT_CREATE_CSO,,}" == "true" ]]; then
       CSO_EXISTS=$(yq e ".active_cso[] | select(.name == \"$EGRESSIP_NAME\") | .name" "$TENANT_METADATA_FILE" 2>/dev/null)
       
       if [ -z "$CSO_EXISTS" ]; then
@@ -462,11 +363,11 @@ function run_scaffold_project() {
         log_info "Generating Project Files from templates..."
         cp "${TEMPLATE_DIR}/values.yaml.tpl" "$VALUES_FILE"
         
-        if [ "$INPUT_DEPLOY_MESH" = "true" ]; then
+        if [ "$INPUT_CREATE_SERVICE_MESH" = "true" ]; then
             yq eval -i ". *= load(\"${TEMPLATE_DIR}/values-service-mesh.yaml.tpl\")" "$VALUES_FILE"
         fi
 
-        if [ "$INPUT_NAMESPACE_IS_FOR_DEVSPACE" = "true" ]; then
+        if [ "$INPUT_IS_DEVSPACE" = "true" ]; then
             yq eval -i ". *= load(\"${TEMPLATE_DIR}/values-devspace.yaml.tpl\")" "$VALUES_FILE"
         fi
 
@@ -478,13 +379,23 @@ function run_scaffold_project() {
         sed -i "s|__SIGLUM__|${INPUT_SIGLUM}|g" "$VALUES_FILE"
         sed -i "s|__COST_CENTER__|${COST_CENTER_LABEL_VALUE}|g" "$VALUES_FILE"
         sed -i "s|__CONTACT_PERSON__|${INPUT_REQUESTER_EMAIL}|g" "$VALUES_FILE"
-        sed -i "s|__NAMESPACE_IS_FOR_DEVSPACE__|${INPUT_NAMESPACE_IS_FOR_DEVSPACE}|g" "$VALUES_FILE"
+        sed -i "s|__NAMESPACE_IS_FOR_DEVSPACE__|${INPUT_IS_DEVSPACE}|g" "$VALUES_FILE"
         sed -i "s|__REQUESTER_EMAIL__|${INPUT_REQUESTER_EMAIL}|g" "$VALUES_FILE"
         sed -i "s|__APP_LABEL__|${TENANT_PROJECT#dcsc-}|g" "$VALUES_FILE"
 
         cp "${TEMPLATE_DIR}/Chart.yaml.tpl" "$CHART_FILE"
-        if [ "$INPUT_DEPLOY_MESH" != "true" ]; then
-            sed -i '/\s*-\s*name:\s*dcs-service-mesh/,+2d' "$CHART_FILE"
+        if [ "$INPUT_CREATE_SERVICE_MESH" != "true" ]; then
+            # Was: sed -i '/\s*-\s*name:\s*dcs-service-mesh/,+2d'
+            #
+            # That deleted the matching line plus exactly two more, so it was
+            # correct only while the mesh dependency stayed exactly three lines
+            # long. Add a fourth (a `condition:`, say) and sed leaves it behind
+            # -- attached to the dependency above it. The result is still valid
+            # YAML, which is the dangerous part: Helm would silently apply a
+            # mesh condition to dcs-namespace-provisioner instead of failing.
+            #
+            # Structural deletion cannot land on the wrong dependency.
+            yq e -i 'del(.dependencies[] | select(.name == "dcs-service-mesh"))' "$CHART_FILE"
         fi
 
         sed -i "s|__HARBOR_URL__|${HARBOR_LOCAL_URL}|g" "$CHART_FILE"
@@ -500,32 +411,32 @@ function run_scaffold_project() {
     # =========================================================================
 
     log_info "Analysing Operator Services configurations..."
-    if [[ "$INPUT_ARGOCD_OPERATOR_SERVICES" == "true" ]]; then
+    if [[ "$INPUT_ARGOCD_OPERATOR" == "true" ]]; then
         log_info "Enabling ArgoCD Operator..."
         yq e -i '.dcs-namespace-provisioner.managedServices.argocdOperator.enabled = true' "$VALUES_FILE"
     fi
-    if [[ "$INPUT_GITLAB_OPERATOR_SERVICES" == "true" ]]; then
+    if [[ "$INPUT_GITLAB_OPERATOR" == "true" ]]; then
         log_info "Enabling GitLab Operator..."
         yq e -i '.dcs-namespace-provisioner.managedServices.gitlabOperator.enabled = true' "$VALUES_FILE"
     fi
-    if [[ "$INPUT_CLOUDNATIVEPG_OPERATOR_SERVICES" == "true" ]]; then
+    if [[ "$INPUT_CLOUDNATIVEPG_OPERATOR" == "true" ]]; then
         log_info "Enabling CloudNativePG Operator..."
         yq e -i '.dcs-namespace-provisioner.managedServices.cloudNativePG.enabled = true' "$VALUES_FILE"
     fi
-    if [[ "$INPUT_CERT_MANAGER_OPERATOR_SERVICES" == "true" ]]; then
+    if [[ "$INPUT_CERT_MANAGER_OPERATOR" == "true" ]]; then
         log_info "Enabling Cert Manager Operator..."
         yq e -i '.dcs-namespace-provisioner.managedServices.certManagerOperator.enabled = true' "$VALUES_FILE"
     fi
-    if [[ "$INPUT_LOKI_OPERATOR_SERVICES" == "true" ]]; then
+    if [[ "$INPUT_LOKI_OPERATOR" == "true" ]]; then
         log_info "Enabling Loki Operator..."
         yq e -i '.dcs-namespace-provisioner.managedServices.lokiOperator.enabled = true' "$VALUES_FILE"
     fi
 
     # --- GPU Configuration Logic ---
-    if [[ "$INPUT_GPU_ENABLED" == "true" && "$INPUT_GPU_TIERS" != "NONE" ]]; then
-        log_info "Configuring GPU resources for tier: $INPUT_GPU_TIERS"
+    if [[ "$INPUT_GPU_ENABLED" == "true" && "$INPUT_GPU_TIER" != "NONE" ]]; then
+        log_info "Configuring GPU resources for tier: $INPUT_GPU_TIER"
         export GPU_TPL_PATH="${TEMPLATE_DIR}/values-gpuconfig.yaml.tpl"
-        yq eval -i '. *= load(strenv(GPU_TPL_PATH)).[strenv(INPUT_GPU_TIERS)]' "$VALUES_FILE"
+        yq eval -i '. *= load(strenv(GPU_TPL_PATH)).[strenv(INPUT_GPU_TIER)]' "$VALUES_FILE"
     fi
 
     # Inject route exception settings into values.yaml
@@ -538,7 +449,7 @@ function run_scaffold_project() {
         ' "$VALUES_FILE"
     fi
 
-    if [ "$INPUT_ADD_NS_TO_MESH" = "true" ]; then
+    if [ "$INPUT_JOIN_SERVICE_MESH" = "true" ]; then
         log_info "Updating Service Mesh Config safely..."
         yq e -i '
             .["dcs-service-mesh"].dataplane.namespaces += [{"name": strenv(TENANT_PROJECT)}] | 
@@ -546,7 +457,7 @@ function run_scaffold_project() {
         ' "$MESH_VALUES_FILE_PATH"
     fi
 
-    if [ "$INPUT_NAMESPACE_IS_FOR_DEVSPACE" = "true" ]; then
+    if [ "$INPUT_IS_DEVSPACE" = "true" ]; then
         TENANT_DEFAULT_NS_VALUES_FILE_PATH="${CUSTOMER_DIR}/dcsc-${TENANT_NAME}/values.yaml"
         if [ -f "$TENANT_DEFAULT_NS_VALUES_FILE_PATH" ]; then
           log_info "Updating Tenant Default namespace project_users"
@@ -566,9 +477,9 @@ function run_scaffold_project() {
     echo "Project/Namespace:                      $TENANT_PROJECT"
     echo "Cluster:                                $INPUT_TARGET_CLUSTER"
     echo "Lifecycle:                              $INPUT_LIFECYCLE"
-    echo "This namespace is for devspace:         $INPUT_NAMESPACE_IS_FOR_DEVSPACE"
-    echo "Add namespace to tenant service mesh:   $INPUT_ADD_NS_TO_MESH"
-    echo "Deploy tenant service mesh:             $INPUT_DEPLOY_MESH"
+    echo "This namespace is for devspace:         $INPUT_IS_DEVSPACE"
+    echo "Add namespace to tenant service mesh:   $INPUT_JOIN_SERVICE_MESH"
+    echo "Deploy tenant service mesh:             $INPUT_CREATE_SERVICE_MESH"
     echo "Route Exception:                        $INPUT_ROUTE_EXCEPTION"
     echo "Siglum:                                 $INPUT_SIGLUM"
     echo "Cost Center:                            $INPUT_COST_CENTER"
@@ -657,7 +568,7 @@ function run_scaffold_cso() {
       sed -i "s|__HARBOR_OCI_PROJECT__|${HARBOR_OCI_PROJECT}|g" "$CHART_FILE"  
     fi
 
-    if [[ "${INPUT_EGRESSIP_SUBNET,,}" != "none" ]]; then
+    if [[ "${INPUT_EGRESSIP_ALLOCATION,,}" != "none" ]]; then
 
       # Check and create chart file
       if [ ! -f "$IPPOOL_FILE" ]; then
@@ -665,8 +576,8 @@ function run_scaffold_cso() {
         exit 1
       fi
 
-      export TARGET_SUBNET=$(echo "$INPUT_EGRESSIP_SUBNET" | awk -F'[(]' '{print $1}')
-      REQUESTED_SUBNET_IPs=$(echo "$INPUT_EGRESSIP_SUBNET" | awk -F'[()]' '{print $2}')
+      export TARGET_SUBNET=$(echo "$INPUT_EGRESSIP_ALLOCATION" | awk -F'[(]' '{print $1}')
+      REQUESTED_SUBNET_IPs=$(echo "$INPUT_EGRESSIP_ALLOCATION" | awk -F'[()]' '{print $2}')
       AVAILABLE_IPS=$(yq -r '.[] | select(.subnet == strenv(TARGET_SUBNET)) | .ips[] | select(.status == "available") | .ip' "$IPPOOL_FILE" | head -n "$REQUESTED_SUBNET_IPs")
       FOUND_COUNT=$(echo "$AVAILABLE_IPS" | wc -w)
 
@@ -719,7 +630,7 @@ function sync_cross_namespace_policies() {
     log_info "Checking for tenant-wide policy dependencies..."
 
     # Skip if this is a CSO creation, as it doesn't affect tenant namespaces directly
-    if [[ "${INPUT_CSO_CREATE,,}" == "true" ]]; then
+    if [[ "${INPUT_CREATE_CSO,,}" == "true" ]]; then
         log_info "CSO creation. Skipping cross-namespace sync."
         return
     fi
@@ -869,19 +780,15 @@ function run_git_ops() {
 }
 
 # --- Main Execution Flow ---
-if [[ "${DEBUG}" == "true" ]]; then
-    echo "==========================================================================="
-    echo "                         *** Debug Enabled ***                             "
-    echo "==========================================================================="
-    set -x
-fi
+enable_debug_if_requested
 
-validate_inputs
+# validate_inputs used to run here. load-payload.sh has already done that work,
+# against request-schema.yaml, at the moment this file was sourced.
 prepare_variables
 sanity_checks
 update_metadata
 
-if [[ "${INPUT_CSO_CREATE,,}" == "true" ]]; then
+if [[ "${INPUT_CREATE_CSO,,}" == "true" ]]; then
   run_scaffold_cso
 else
   run_scaffold_project

@@ -22,13 +22,13 @@ flag it rather than assume.
 | 5 | Backfill metadata | namespace-prov | `SYNC_METADATA` **CI variable** | `sync-metadata.sh` |
 | 6 | Registry mirror | mirror-config | only job in repo | `scaffold-registry-mirror.sh` |
 
-Operation 5 is **out of scope**: it was a one-off backfill for tenants
-provisioned before `tenant-metadata.yaml` existed. It stays as-is, is not in the
-operation enum, and Phase 1 does not touch it. Worth noting for its own sake
-though: it is already driven by a CI variable rather than an input, which is
-useful precedent if the payload ever has to move off inputs.
+Operation 5 has been **deleted**. It was a one-off backfill for tenants
+provisioned before `tenant-metadata.yaml` existed, it has served its purpose,
+and leaving a job in the pipeline that nothing runs is how a repo accumulates
+things nobody dares remove later. The script, the job, its stage and its
+`SYNC_METADATA` guard rules are all gone.
 
-The five in scope are 1–4 and 6.
+The five that remain are 1–4 and 6.
 
 Every script reads its parameters exclusively from `INPUT_*` environment
 variables. The `.gitlab-ci.yml` `variables:` block is the only place
@@ -248,14 +248,29 @@ One file, in the customer onboarding repo, that is the only place a field is
 ever declared:
 
 ```
-dcs-customer-onboarding/
-  request-schema.yaml      <-- single source of truth
+dcs-customer-instances/          <-- ONE repo, every request type
+  request-schema.yaml            <-- single source of truth, 31 fields, 5 operations
   pipeline-scripts/
-    load-payload.sh        <-- new; schema + JSON -> INPUT_* env
-    scaffold.sh            <-- unchanged
-    decommission.sh        <-- unchanged
-  pages/                   <-- new; static form, reads the schema
+    common.sh                    <-- new; the log helpers all three scripts duplicated
+    load-payload.sh              <-- new; schema + JSON -> INPUT_* env
+    scaffold-namespace.sh        <-- was scaffold.sh
+    scaffold-mirror.sh           <-- was a whole separate repo
+    decommission.sh
+    validate-mr-permissions.sh   <-- was validate-customer-values-file.sh
+  tools/
+    check-schema-drift.sh        <-- new; schema and scripts cannot diverge
+    test-load-payload.sh         <-- new; the gate has a test
+  customers-templates/
+  pages/                         <-- Phase 2; static form, reads the schema
 ```
+
+**One repo, not two.** The registry-mirror pipeline has moved in rather than
+being kept alongside with its own schema. The point is not to save a repository
+— it is that a second schema would have to be merged at Pages build time, and
+the five fields the two share would drift the first time someone edited one and
+not the other. Operators are not shown the merged field list: an operation
+renders only its own fields, so a mirror request shows fourteen and never
+mentions GPUs.
 
 Three consumers, one definition:
 
@@ -450,7 +465,97 @@ Secondary drawbacks, all acceptable:
 - Pipeline schedules or bookmarks that set individual inputs stop working. Worth
   checking whether any exist before we merge.
 
-### 3.4 Also folded into Phase 1
+### 3.4 As built — what actually changed in the scripts
+
+Phase 1 turned out to be more than "only changing the way we read", because
+merging the two repos forced three things that could not both stay as they were.
+All three are named here rather than buried in a diff.
+
+**1. `validate_inputs` is gone from both scripts.** 126 lines from
+`scaffold.sh`, 58 from `decommission.sh`. The split now is: **the schema owns
+syntax** — presence, type, enum, format, case normalisation, and cross-field
+rules like "ARD is required for prod"; **the script owns what needs the
+repository on disk** — does the tenant directory exist, is the ArgoCD app name
+taken, does the mesh this namespace wants to join exist. That second half lives
+in `sanity_checks` and is untouched.
+
+I considered keeping the syntax checks in the scripts as belt-and-braces. That
+was the original design, and it is exactly what produced a siglum check that
+could never fire: two copies of one rule, in two files, in different cases. One
+declaration.
+
+**2. The timestamp conversion moved; it did not go away.** MyITSM displays
+`DD/MM/YYYY HH:MM:SS`, and the operator copy-pastes it, so that is what the
+payload carries and what the form will accept. The pipeline stores ISO 8601.
+The reassembly between the two is unchanged and deliberate — the schema declares
+`input_format: "DD/MM/YYYY HH:mm:ss"` and the shim exports
+`INPUT_REQUESTED_TIMESTAMP` as ISO.
+
+What changed is that it happens once instead of inconsistently. It used to be
+written out twice, once in each script's `validate_inputs`, while the
+registry-mirror script skipped it entirely and demanded ISO from the operator —
+which is why the two repos disagreed about timestamp format for the same field.
+Now the operator pastes the same thing for every operation and every script
+receives ISO.
+
+*(An earlier draft of this document had this backwards: it made the payload
+carry ISO, which would have pushed the reformatting onto the operator and
+defeated the copy-paste. Corrected.)*
+
+**3. `scaffold-mirror.sh` no longer clones.** It needed a clone of
+customer-instances only because it lived somewhere else. It is now running in
+that checkout. Removing `clone_target_repo` also removes a second set of
+credentials in a URL, a `TARGET_BASE_BRANCH` knob that could silently mirror
+against a stale branch, and the class of bug where the script validates one
+checkout and commits to another.
+
+Two smaller things, both flagged rather than assumed:
+
+- **The mirror's `@zzz.com` requester restriction is not applied.** One field
+  means one rule for all five operations, and promoting the mirror's pattern
+  would start rejecting namespace requests that are legal today. The schema
+  carries a note showing the one line to add if every requester really is on
+  that domain.
+- **Decommission no longer asks for a cost centre.** Its `validate_inputs`
+  demanded one, checked it against a placeholder, and then never used it.
+
+Bug fixes carried in the same change, both confirmed by replay before fixing:
+the siglum check (now moot — the field is simply `required`), and the
+service-mesh naming branch, which now sets `dcsc-${TENANT_NAME}-service-mesh`
+with no suffix, matching what `sanity_checks` has always expected.
+
+### 3.5 Two defects the test suite caught on its first run
+
+Both were in code I wrote, and neither is the kind of thing a reading would have
+found. Recording them because they say something about where the risk in this
+design actually sits.
+
+**1. `required: true` was invisible.** The shim reads the schema with one yq
+call that flattens it, selecting scalar properties with
+`select(.value | tag == "!!str" or tag == "!!int" or tag == "!!bool")`. In yq
+v4 that `or` chain silently drops the booleans — with explicit parentheses too.
+So `required` and `allow_empty` never loaded, nothing was ever required, and the
+shim happily accepted a namespace request with no request ID. The fix is the
+negative form, `(tag != "!!map") and (tag != "!!seq")`, which is also
+future-proof against the schema growing a float or a null.
+
+This is the failure mode the whole phase is exposed to: the shim replaced
+GitLab's server-side enforcement, and a silently-empty rule set looks exactly
+like a working one until something bad gets through.
+
+**2. `required` meant the wrong thing.** It was checking "is the value non-empty
+after defaulting", which differs from "did the operator supply it" for any field
+with a default. `gpu_tier` defaults to the literal `"None"` that the scaffold
+script demands when GPU is off — so "GPU on, no tier chosen" satisfied its own
+`required_if` with the sentinel for absence.
+
+`required` now means presence in the payload, and a required field ignores its
+default. Fixing that exposed a second error: I had marked `target_cluster`,
+`lifecycle`, `replication_type` and `registry_provider` required when all four
+have working defaults and no check in the original scripts. The nine genuinely
+required fields are the nine the old code refused to proceed without.
+
+### 3.6 Also folded into Phase 1
 
 - add `trigger` and `api` to the decommission job's rules (defect #1)
 - guard `git add "$IPPOOL_FILE"` (defect #3)
@@ -664,7 +769,7 @@ validation checks and a decommission path that cannot be automated.
 |---|---|---|
 | Masked domains — drift or artefact? | Artefact | No action; only the siglum check is really dead |
 | `.gitlab/auto-update.yml` | Out of scope for now | Not reviewed; Phase 1 must not touch its `include:` |
-| `sync-metadata` | Out of scope — it was a one-off backfill for tenants provisioned before `tenant-metadata.yaml` existed | Dropped from the operation enum. The job and its `SYNC_METADATA` variable stay exactly as they are, untouched by Phase 1. |
+| `sync-metadata` | A one-off backfill for tenants provisioned before `tenant-metadata.yaml` existed; no longer needed | **Deleted** — script, job, stage and guard rules |
 | Pipeline schedules / saved runs | None — always a manual trigger | No migration concern; Phase 1 can change the input surface in one merge |
 | `REQUEST_PAYLOAD` input or variable | **Input**, per the probe (§3.1) | One open measurement: input value-size ceiling |
 | Suffix visibility to the operator | Not needed at trigger time | Form states it is generated; no prediction attempted |

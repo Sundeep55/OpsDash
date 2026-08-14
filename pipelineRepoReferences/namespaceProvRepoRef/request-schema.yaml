@@ -1,0 +1,565 @@
+# =============================================================================
+# Request schema — the single declaration of every field any onboarding request
+# can carry, for every operation this repo performs.
+#
+# Three consumers read this file:
+#
+#   1. pipeline-scripts/load-payload.sh   at run time, to turn REQUEST_PAYLOAD
+#                                         into the INPUT_* variables the
+#                                         scaffold/decommission scripts expect
+#   2. the GitLab Pages form              at build time, to render itself
+#   3. OpsDash                            fetched over the API, to render the
+#                                         same form without an OpsDash release
+#
+# ADDING A FIELD
+# --------------
+#   1. add a block under `fields:`
+#   2. add its name to every operation under `operations:` that should offer it
+#   3. use the new INPUT_* in the relevant pipeline script
+#
+# That is the whole procedure. The form and OpsDash pick it up on their own, and
+# tools/check-schema-drift.sh fails the pipeline if a script reads an INPUT_*
+# that is not declared here — so step 3 cannot happen without step 1.
+#
+# WHY ONE FILE FOR EVERY OPERATION
+# --------------------------------
+# An operator never sees all of this at once. `operations.<op>.fields` decides
+# what a given request renders and accepts, so a registry mirror request shows
+# fourteen fields and never mentions GPUs, and a decommission shows six. The
+# single file is for whoever *adds* a field, not for whoever fills one in — it
+# means a new capability lands in one place and reaches every surface, instead
+# of being copied into a second repo that then drifts.
+#
+# FIELD PROPERTIES
+# ----------------
+#   env          REQUIRED. The variable the shell scripts read. This is what
+#                keeps the scripts unaware that any of this exists.
+#   type         string | boolean | integer | enum | email | url | datetime
+#   options      enum only. Enforced by load-payload.sh — this replaces the
+#                server-side enforcement GitLab used to give us via `options:`
+#                on a CI input, and it is why collapsing to one JSON payload is
+#                not a loss of safety.
+#   default      used when the operator did not supply the field
+#   absent_value what to send when the field is hidden by `show_if`. Lets a
+#                hidden field still satisfy a script that expects a literal
+#                (e.g. GPU tier must be exactly "None" when GPU is off).
+#   required     the operator must SUPPLY it — presence in the payload, not
+#                merely a non-empty value after defaulting. A required field
+#                therefore ignores its own `default`, and a `default` on a
+#                required field is only a form pre-selection. Enforced only for
+#                operations that list the field.
+#
+#                The distinction matters: gpu_tier defaults to the literal
+#                "None" that the scaffold script wants when GPU is off, so a
+#                non-emptiness test would let "GPU on, no tier chosen" satisfy
+#                its own requirement with the sentinel for absence.
+#   allow_empty  with `required: true`: the key must be present, but "" is a
+#                legitimate value. Used for cost centre, where empty means
+#                non-billable and must be a deliberate choice, not an omission.
+#   normalise    lower | upper. Replaces the `tr` calls at the top of each
+#                script's validate_inputs.
+#   input_format datetime only. The format the operator supplies, which is not
+#                necessarily the one the scripts want. The value is validated in
+#                this format and exported as ISO 8601.
+#   pattern      POSIX ERE, checked when the value is non-empty
+#   deny_prefix  list of prefixes the value may not start with
+#   show_if      map of field: value. All must match or the field is hidden.
+#   required_if  map of field: value. All must match or the field is optional.
+#   source       Phase 2. Where the form gets its picklist, so operators stop
+#                writing tenant and namespace names down by hand.
+#
+# Every field is exported with its default on every run, whatever the operation,
+# so no script ever reads an unset INPUT_*. `operations.<op>.fields` controls
+# what the operator may supply, what the form renders, and where `required` is
+# enforced — not what exists. That is why a decommission request does not have
+# to restate a cost centre it will never use.
+# =============================================================================
+
+version: 1
+
+# -----------------------------------------------------------------------------
+# Operations.
+#
+# `OPERATION` is a separate CI input rather than a key inside the payload,
+# because GitLab evaluates `rules:` at pipeline-creation time and cannot see
+# inside the payload string. It is also what retired the old CSO_CREATE /
+# DECOMMISSION / DECOMMISSION_CSO boolean trio, which could be set in
+# combinations nothing handled.
+# -----------------------------------------------------------------------------
+operations:
+
+  namespace.create:
+    title: Namespace — create or update
+    description: >-
+      Creates a namespace, or updates one that already exists. Which of the two
+      happens is decided inside the pipeline from whether the directory is
+      already present; the operator does not choose.
+    job: scaffold-namespace
+    sets:
+      INPUT_CREATE_CSO: "false"
+    fields:
+      - request_id
+      - requester_email
+      - requested_at
+      - target_cluster
+      - tenant_name
+      - namespace_name
+      - siglum
+      - cost_center
+      - lifecycle
+      - ard_link
+      - is_devspace
+      - route_exception
+      - join_service_mesh
+      - create_service_mesh
+      - gpu_enabled
+      - gpu_tier
+      - argocd_operator
+      - gitlab_operator
+      - cloudnativepg_operator
+      - cert_manager_operator
+      - loki_operator
+
+  cso.create:
+    title: EgressIP (cluster scope object) — create
+    job: scaffold-namespace
+    sets:
+      INPUT_CREATE_CSO: "true"
+    fields:
+      - request_id
+      - requester_email
+      - requested_at
+      - target_cluster
+      - tenant_name
+      - siglum
+      - cost_center
+      - lifecycle
+      - ard_link
+      - egressip_allocation
+
+  namespace.decommission:
+    title: Namespace — decommission
+    job: decommission
+    sets:
+      INPUT_DECOMMISSION_CSO: "false"
+    fields:
+      - request_id
+      - requester_email
+      - requested_at
+      - target_cluster
+      - tenant_name
+      - namespace_name
+
+  cso.decommission:
+    title: EgressIP (cluster scope object) — decommission
+    job: decommission
+    sets:
+      INPUT_DECOMMISSION_CSO: "true"
+    fields:
+      - request_id
+      - requester_email
+      - requested_at
+      - target_cluster
+      - tenant_name
+      - namespace_name
+
+  mirror.create:
+    title: Registry mirror — create
+    description: >-
+      Adds replication rules pulling images from an external or internal
+      registry into a Harbor project. The tenant and namespace must already
+      exist; a mirror request never creates either.
+    job: scaffold-mirror
+    fields:
+      - request_id
+      - requester_email
+      - requested_at
+      - target_cluster
+      - tenant_name
+      - harbor_project
+      - replication_type
+      - registry_url
+      - registry_provider
+      - registry_needs_credentials
+      - registry_username
+      - registry_secret_ref
+      - images
+      - image_tags
+
+# -----------------------------------------------------------------------------
+# Groups. Presentation only — the form renders fields in this order, under these
+# headings. Nothing in the pipeline reads them.
+# -----------------------------------------------------------------------------
+groups:
+  - id: request
+    title: Request
+    description: Where this request came from.
+  - id: placement
+    title: Tenant and cluster
+  - id: classification
+    title: Classification
+  - id: features
+    title: Optional features
+  - id: operators
+    title: Operators
+  - id: egress
+    title: Egress
+  - id: registry
+    title: Source registry
+  - id: images
+    title: Images
+
+# -----------------------------------------------------------------------------
+fields:
+
+  # === Shared by every operation =========================================
+
+  request_id:
+    group: request
+    label: ITSM request ID
+    description: The unique ITSM request ID associated with this task.
+    type: string
+    env: INPUT_REQUEST_ID
+    required: true
+    normalise: upper
+    default: ""
+
+  requester_email:
+    group: request
+    label: Requester
+    description: Email address of the project owner or requester.
+    type: email
+    env: INPUT_REQUESTER_EMAIL
+    required: true
+    normalise: lower
+    default: ""
+    # NOTE — a decision for you. The mirror script used to additionally require
+    # the address to match ^...@zzz\.com$, while the namespace scripts accepted
+    # any address. Merging into one field means one rule for everything, and
+    # promoting the mirror's restriction would start rejecting namespace
+    # requests that are legal today. It is therefore NOT applied. If every
+    # requester really is on that one domain, add:
+    #     pattern: "^[a-z0-9._%+-]+@zzz\\.com$"
+    # and it will apply uniformly to all five operations, which is the point of
+    # having one declaration.
+
+  requested_at:
+    group: request
+    label: Requested at
+    description: >-
+      The official request time from the ITSM ticket, exactly as MyITSM displays
+      it — DD/MM/YYYY HH:MM:SS. Copy and paste it.
+    type: datetime
+    env: INPUT_REQUESTED_TIMESTAMP
+    required: true
+    default: ""
+    # The operator pastes what MyITSM shows; the pipeline stores ISO 8601.
+    # `input_format` is what arrives, the export is always ISO.
+    #
+    # The conversion itself is unchanged and deliberate — it is only its
+    # location that moved. It used to be written out twice, once in each
+    # script's validate_inputs, while the registry-mirror script skipped it and
+    # demanded ISO from the operator instead. That is why the two repos
+    # disagreed about timestamp format. Doing it once here means the operator
+    # pastes the same thing for every operation and every script receives ISO.
+    input_format: "DD/MM/YYYY HH:mm:ss"
+
+  target_cluster:
+    group: placement
+    label: Target cluster
+    type: enum
+    env: INPUT_TARGET_CLUSTER
+    options: ["qa-w1"]
+    default: "qa-w1"
+    normalise: lower
+
+  tenant_name:
+    group: placement
+    label: Tenant
+    description: >-
+      The tenant this request belongs to. For a namespace request, pick an
+      existing tenant to add to it or type a new name to create one. Mirror and
+      decommission requests require an existing tenant.
+    type: string
+    env: INPUT_TENANT_NAME
+    required: true
+    normalise: lower
+    default: ""
+    source: { index: tenants, by: [target_cluster] }
+
+  # === Namespace and CSO =================================================
+
+  namespace_name:
+    group: placement
+    label: Namespace
+    description: >-
+      Leave empty for a brand-new tenant and the namespace is named after it.
+      For an existing tenant this is required — pick the namespace to update, or
+      type a new name to add one. A four-character suffix is appended by the
+      pipeline; it is generated at run time and is not predictable here.
+    type: string
+    env: INPUT_NAMESPACE_NAME
+    normalise: lower
+    default: ""
+    # validate_inputs rejects these; declared here so the form can too, and so
+    # the rule lives in one place.
+    deny_prefix: ["dcsc-ds", "dcsc-cso"]
+    source: { index: namespaces, by: [target_cluster, tenant_name] }
+
+  siglum:
+    group: classification
+    label: Siglum
+    description: Organisational siglum or department code.
+    type: string
+    env: INPUT_SIGLUM
+    required: true
+    normalise: upper
+    default: ""
+
+  cost_center:
+    group: classification
+    label: Cost centre
+    description: >-
+      Billing or WBS code. Leave empty for a non-billable tenant — but it must be
+      left empty deliberately, not omitted.
+    type: string
+    env: INPUT_COST_CENTER
+    required: true
+    allow_empty: true
+    normalise: upper
+    pattern: "^[A-Za-z0-9._/-]+$"
+    default: ""
+
+  lifecycle:
+    group: classification
+    label: Lifecycle
+    type: enum
+    env: INPUT_LIFECYCLE
+    options: ["dev", "prod"]
+    default: "dev"
+    normalise: lower
+
+  ard_link:
+    group: classification
+    label: ARD link
+    description: >-
+      URL or path to the ARD. Mandatory for prod. If the requester supplied the
+      ARD as an attachment, upload it to a common share and link it here.
+    type: url
+    env: INPUT_ARD_LINK
+    default: ""
+    absent_value: ""
+    show_if: { lifecycle: "prod" }
+    required_if: { lifecycle: "prod" }
+
+  is_devspace:
+    group: features
+    label: DevSpace namespace
+    description: >-
+      The namespace is a personal DevSpace. The name is derived from the
+      requester's email; anything typed as the namespace name is ignored.
+    type: boolean
+    env: INPUT_IS_DEVSPACE
+    default: "false"
+
+  route_exception:
+    group: features
+    label: Route security exception
+    description: Allow Routes in a dev namespace. Granted for 90 days. Dev only.
+    type: boolean
+    env: INPUT_ROUTE_EXCEPTION
+    default: "false"
+    absent_value: "false"
+    show_if: { lifecycle: "dev" }
+
+  join_service_mesh:
+    group: features
+    label: Add namespace to the tenant service mesh
+    description: Requires a mesh to already exist for this tenant.
+    type: boolean
+    env: INPUT_JOIN_SERVICE_MESH
+    default: "false"
+
+  create_service_mesh:
+    group: features
+    label: Deploy a service mesh for this tenant
+    description: >-
+      Creates the tenant's mesh namespace, named dcsc-<tenant>-service-mesh.
+      Mutually exclusive with adding a namespace to an existing mesh.
+    type: boolean
+    env: INPUT_CREATE_SERVICE_MESH
+    default: "false"
+
+  gpu_enabled:
+    group: features
+    label: GPU
+    type: boolean
+    env: INPUT_GPU_ENABLED
+    default: "false"
+
+  gpu_tier:
+    group: features
+    label: GPU tier
+    description: >-
+      'standard' is shared access. 'dedicated.h200.1g.18gb' is pre-partitioned;
+      'dedicated.h200' is a full card.
+    type: enum
+    env: INPUT_GPU_TIER
+    options: ["standard", "dedicated.h200", "dedicated.h200.1g.18gb"]
+    default: "None"
+    # validate_inputs requires the literal "None" when GPU is off, so that is
+    # what a hidden field must send.
+    absent_value: "None"
+    show_if: { gpu_enabled: "true" }
+    required_if: { gpu_enabled: "true" }
+
+  # --- Operators ---------------------------------------------------------
+  # Note for whoever extends these: the scaffold script only ever sets an
+  # operator to `true`. There is no branch that sets `false`, so an operator
+  # cannot currently be turned off through the pipeline. Making these
+  # three-state is a scaffold-script change, not a schema change.
+  argocd_operator:
+    group: operators
+    label: ArgoCD
+    type: boolean
+    env: INPUT_ARGOCD_OPERATOR
+    default: "false"
+
+  gitlab_operator:
+    group: operators
+    label: GitLab
+    type: boolean
+    env: INPUT_GITLAB_OPERATOR
+    default: "false"
+
+  cloudnativepg_operator:
+    group: operators
+    label: CloudNativePG
+    type: boolean
+    env: INPUT_CLOUDNATIVEPG_OPERATOR
+    default: "false"
+
+  cert_manager_operator:
+    group: operators
+    label: Cert Manager
+    type: boolean
+    env: INPUT_CERT_MANAGER_OPERATOR
+    default: "false"
+
+  loki_operator:
+    group: operators
+    label: Loki
+    type: boolean
+    env: INPUT_LOKI_OPERATOR
+    default: "false"
+
+  egressip_allocation:
+    group: egress
+    label: EgressIP subnet
+    description: >-
+      Subnet and IP count. The two are deliberately coupled — the option list is
+      the set of allocations the pool supports, not a free choice of subnet and
+      count.
+    type: enum
+    env: INPUT_EGRESSIP_ALLOCATION
+    options: ["NONE", "x.x.1.0/24(1)IP", "x.x.2.0/24(2)IPs"]
+    default: "NONE"
+    absent_value: "NONE"
+
+  # === Registry mirror ===================================================
+
+  harbor_project:
+    group: placement
+    label: Harbor project
+    description: >-
+      The Harbor project to replicate into. A dev- or prod- prefix is stripped to
+      locate the namespace directory under the tenant.
+    type: string
+    env: INPUT_HARBOR_PROJECT
+    required: true
+    normalise: lower
+    default: ""
+
+  replication_type:
+    group: registry
+    label: Replication type
+    type: enum
+    env: INPUT_REPLICATION_TYPE
+    options: ["external", "dcs-internal", "dcs-internal-div-nat"]
+    default: "external"
+
+  registry_url:
+    group: registry
+    label: Registry URL
+    type: url
+    env: INPUT_REGISTRY_URL
+    required: true
+    pattern: "^https://"
+    default: ""
+
+  registry_provider:
+    group: registry
+    label: Registry provider
+    description: Select harbor when the replication type is one of the internal ones.
+    type: enum
+    env: INPUT_REGISTRY_PROVIDER
+    options: ["docker-registry", "docker-hub", "harbor", "jfrog"]
+    default: "docker-registry"
+
+  registry_needs_credentials:
+    group: registry
+    label: Registry requires authentication
+    type: boolean
+    env: INPUT_REGISTRY_NEEDS_CREDENTIALS
+    default: "false"
+    absent_value: "false"
+    # The internal replication types supply their own robot-account credentials
+    # and ignore this flag entirely, so asking for it there could only produce a
+    # validation error about credentials that would never be used.
+    show_if: { replication_type: "external" }
+
+  registry_username:
+    group: registry
+    label: Registry username
+    description: The accessId for the external registry.
+    type: string
+    env: INPUT_REGISTRY_USERNAME
+    default: ""
+    absent_value: ""
+    show_if: { registry_needs_credentials: "true" }
+    required_if: { registry_needs_credentials: "true" }
+
+  registry_secret_ref:
+    group: registry
+    label: Credentials secret name
+    description: >-
+      Name of the Kubernetes secret holding the registry credentials. The secret
+      itself is created out of band; only its name travels through here.
+    type: string
+    env: INPUT_REGISTRY_SECRET_REF
+    default: ""
+    absent_value: ""
+    show_if: { registry_needs_credentials: "true" }
+    required_if: { registry_needs_credentials: "true" }
+
+  images:
+    group: images
+    label: Images
+    description: >-
+      Image paths to replicate, comma-separated (e.g. library/nginx,
+      myproject/myapp). '**' is allowed only as a whole path component.
+    type: string
+    env: INPUT_IMAGE_NAMES
+    required: true
+    default: ""
+
+  image_tags:
+    group: images
+    label: Tags
+    description: >-
+      Leave empty to replicate all tags. One tag applies to every image in the
+      list; otherwise give one per image, in the same order.
+    type: string
+    env: INPUT_IMAGE_TAGS
+    default: ""
+    allow_empty: true

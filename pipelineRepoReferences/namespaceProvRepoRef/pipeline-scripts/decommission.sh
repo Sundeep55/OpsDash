@@ -1,80 +1,20 @@
 #!/bin/bash
+# =============================================================================
+# decommission.sh
+#
+# Decommissions a namespace or a tenant EgressIP cluster-scope object, chosen by
+# OPERATION via INPUT_DECOMMISSION_CSO.
+#
+# As with scaffold-namespace.sh, the opening validate_inputs is gone: presence,
+# format and case now come from request-schema.yaml via load-payload.sh. Note
+# that a decommission request no longer asks for a cost centre — the old
+# validate_inputs demanded one and then never used it.
+# =============================================================================
 set -e
 
-# --- Helper Functions ---
-log_info() {
-    if [[ "${DEBUG}" == "true" ]]; then
-        echo -e "[$(date +'%H:%M:%S')] -> $1"
-    else
-        echo "-> $1"
-    fi
-}
-log_error() {
-    if [[ "${DEBUG}" == "true" ]]; then
-        echo -e "[$(date +'%H:%M:%S')] ERROR: $1"
-    else
-        echo "ERROR: $1"
-    fi
-}
-
-function validate_inputs() {
-    echo "==========================================================================="
-    echo "                            Validate Inputs                                "
-    echo "==========================================================================="
-    log_info "Validating inputs..."
-
-    # Check Email
-    case "$INPUT_REQUESTER_EMAIL" in
-      "projectowner@zzz.com" | \
-      "user@example.com" | \
-      "projectowneruser01@zzz.com" | \
-      "projectowneruser02@zzz.com" | \
-      "projectuser01@zzz.com" | \
-      "projectuser02@zzz.com")
-          log_error "'REQUESTER_EMAIL' was left as default ($INPUT_REQUESTER_EMAIL). Please provide the real requester's email."
-          exit 1
-          ;;
-      *)
-          ;;
-    esac
-
-    # Check Request ID Default
-    [[ "$INPUT_REQUEST_ID" == "REQ00000000000XX" ]] && { log_error "Invalid Request ID (Default detected)."; exit 1; }
-
-    # Check Cost Center Code
-    if [[ "$INPUT_COST_CENTER" == "XX/YY0000-00000" ]]; then
-        log_error "Cost Center code is set to default."
-        log_error "Please enter a valid code OR clear the field for Non-Billable tenants."
-        exit 1
-    fi
-    
-    if [[ -z "$INPUT_COST_CENTER" ]]; then
-        log_info "Cost Center code is empty. Proceeding as Non-Billable tenant."
-    fi
-
-    # Check Timestamp Default
-    [[ "$INPUT_REQUESTED_TIMESTAMP" == "01/04/2026 13:47:48" ]] && { log_error "Invalid Timestamp (Default detected)."; exit 1; }
-
-    # Validate Timestamp Regex (Expected: DD/MM/YYYY HH:MM:SS)
-    if [[ ! "$INPUT_REQUESTED_TIMESTAMP" =~ ^[0-9]{2}/[0-9]{2}/[0-9]{4}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
-        log_error "Invalid Timestamp format: $INPUT_REQUESTED_TIMESTAMP."
-        log_error "Expected input format: DD/MM/YYYY HH:MM:SS"
-        exit 1
-    fi
-
-    IFS='/ :' read -r V_DAY V_MONTH V_YEAR V_HOUR V_MINUTE V_SECOND <<< "$INPUT_REQUESTED_TIMESTAMP"
-    if (( 10#$V_MONTH < 1 || 10#$V_MONTH > 12 )); then log_error "Invalid Month: $V_MONTH"; exit 1; fi
-    if (( 10#$V_DAY < 1 || 10#$V_DAY > 31 )); then log_error "Invalid Day: $V_DAY"; exit 1; fi
-    if (( 10#$V_HOUR < 0 || 10#$V_HOUR > 23 )); then log_error "Invalid Hour: $V_HOUR"; exit 1; fi
-    if (( 10#$V_MINUTE < 0 || 10#$V_MINUTE > 59 )); then log_error "Invalid Minute: $V_MINUTE"; exit 1; fi
-    if (( 10#$V_SECOND < 0 || 10#$V_SECOND > 59 )); then log_error "Invalid Second: $V_SECOND"; exit 1; fi
-
-    # Convert to standard ISO 8601 format
-    REQUESTED_TIMESTAMP="${V_YEAR}-${V_MONTH}-${V_DAY}T${V_HOUR}:${V_MINUTE}:${V_SECOND}"
-    echo "Successfully parsed requested timestamp. Using ISO 8601 format: $REQUESTED_TIMESTAMP"
-
-    log_info "Input Validation Complete."
-}
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_HERE}/common.sh"
+source "${_HERE}/load-payload.sh"
 
 function prepare_variables() {
     echo "==========================================================================="
@@ -82,18 +22,19 @@ function prepare_variables() {
     echo "==========================================================================="
     log_info "Preparing Variables..."
 
-    # Normalize inputs
-    TENANT_NAME=$(echo "$INPUT_TENANT_NAME" | tr '[:upper:]' '[:lower:]')
-    raw_tenant_project=$(echo "$INPUT_TENANT_PROJECT" | tr '[:upper:]' '[:lower:]')
+    # Case folding is done by the schema (`normalise: lower`). What stays here is
+    # the semantic part: a namespace is addressed with or without its dcsc-
+    # prefix and both must resolve to the same directory.
+    TENANT_NAME="$INPUT_TENANT_NAME"
 
-    if [[ "$raw_tenant_project" == dcsc-* ]]; then
-        TENANT_PROJECT="$raw_tenant_project"
+    if [[ "$INPUT_NAMESPACE_NAME" == dcsc-* ]]; then
+        TENANT_PROJECT="$INPUT_NAMESPACE_NAME"
     else
-        TENANT_PROJECT="dcsc-$raw_tenant_project"
+        TENANT_PROJECT="dcsc-$INPUT_NAMESPACE_NAME"
     fi
 
     CURRENT_OFFSET=$(date +%z | sed 's/^\(...\)\(..\)$/\1:\2/')
-    REQUESTED_TIMESTAMP="${REQUESTED_TIMESTAMP}${CURRENT_OFFSET}"
+    REQUESTED_TIMESTAMP="${INPUT_REQUESTED_TIMESTAMP}${CURRENT_OFFSET}"
     DECOMMISSION_TIMESTAMP=$(date +'%Y-%m-%dT%H:%M:%S')
     DECOMMISSION_TIMESTAMP="${DECOMMISSION_TIMESTAMP}${CURRENT_OFFSET}"
     DATE_SUFFIX=$(date -d "$DECOMMISSION_TIMESTAMP" +'%Y_%m_%d_T_%H_%M')
@@ -256,6 +197,11 @@ function perform_decommission() {
     log_info "Checking active namespaces count..."
     
     ACTIVE_NS_COUNT=$(yq '.active_namespaces | length' "$TENANT_METADATA_FILE")
+    # NOTE: nothing in this repo ever writes .active_sub_tenants, so this term is
+    # always 0 today (yq gives length 0 for a missing key, so the arithmetic is
+    # safe). Left in place because removing it would change behaviour the day
+    # sub-tenants are introduced -- but be aware that "the tenant still has
+    # something active" currently means "it still has namespaces", nothing more.
     ACTIVE_TNT_COUNT=$(yq '.active_sub_tenants | length' "$TENANT_METADATA_FILE")
     ACTIVE_COUNT=$(($ACTIVE_NS_COUNT + $ACTIVE_TNT_COUNT))
     log_info "Remaining Active Namespaces: $ACTIVE_COUNT"
@@ -360,7 +306,14 @@ function run_git_ops() {
     git config --global user.name "${GITLAB_USER_NAME}"
     git checkout -b "$NEW_BRANCH_NAME"
     git add "$CLUSTER_DIR"
-    git add "$IPPOOL_FILE"
+    # BUG FIX. This was unconditional. Under `set -e`, a cluster with no
+    # egressip-pool.yaml failed here -- after perform_decommission had already
+    # deleted directories from the working tree. Nothing was pushed so it was
+    # recoverable, but the operator saw a red pipeline on a job that had done
+    # most of its work. scaffold-namespace.sh already guards the same add.
+    if [ -f "$IPPOOL_FILE" ]; then
+        git add "$IPPOOL_FILE"
+    fi
     git commit -m "chore: Decommission $TENANT_PROJECT in $TENANT_NAME"
     git push "https://${CI_SERVER_HOST}:${GITLAB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" "$NEW_BRANCH_NAME"
     echo ""
@@ -372,14 +325,8 @@ function run_git_ops() {
 }
 
 # --- Main Execution ---
-if [[ "${DEBUG}" == "true" ]]; then
-    echo "==========================================================================="
-    echo "                         *** Debug Enabled ***                             "
-    echo "==========================================================================="
-    set -x
-fi
+enable_debug_if_requested
 
-validate_inputs
 prepare_variables
 sanity_checks
 update_metadata
