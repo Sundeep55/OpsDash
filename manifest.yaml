@@ -15,7 +15,7 @@ data:
   
   # UI Text Variables
   PORTAL_NAME: "Ops Control Plane"
-  PORTAL_TITLE: "Airbus DCS Operations"
+  PORTAL_TITLE: "DCS Operations"
   
   # GitLab Sync Configuration
   GITLAB_URL: "https://gitlab.com"

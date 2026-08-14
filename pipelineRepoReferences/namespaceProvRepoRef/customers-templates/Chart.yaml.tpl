@@ -16,4 +16,4 @@ dependencies:
     repository: oci://__HARBOR_URL__/__HARBOR_OCI_PROJECT__
 maintainers:
   - name: Country specific Ops
-    email: country-ops@airbus.com
+    email: country-ops@zzz.com

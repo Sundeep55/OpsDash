@@ -14,7 +14,7 @@ dcs-namespace-provisioner:
 dcs-service-mesh:
   # -- Required
   cluster:
-    domain: apps.qa-ocp-rhosp.dcs.otn1-tnt.iaas.aircloud.common.airbusds.corp
+    domain: apps.xxx.corp
   # -- Required. Add all namespaces that will be part of the service mesh.
   dataplane:
     namespaces: []

@@ -1,8 +1,8 @@
 dcs-egress:
   requiredLabels:
-    dcs.airbus.com/tenant_name: "__TENANT_NAME__"
-    dcs.airbus.com/target_cluster: "__TARGET_CLUSTER__"
-    dcs.airbus.com/lifecycle: "__LIFECYCLE__"
+    dcs.zzz.com/tenant_name: "__TENANT_NAME__"
+    dcs.zzz.com/target_cluster: "__TARGET_CLUSTER__"
+    dcs.zzz.com/lifecycle: "__LIFECYCLE__"
   additionalLabels:
     cost_center: "__COST_CENTER__"
   additionalAnnotations:

@@ -76,7 +76,7 @@ function validate_inputs() {
     done
 
     [[ -z "$INPUT_REQUESTER_EMAIL" || "$INPUT_REQUESTER_EMAIL" == "requester@example.com" ]] && { log_error "REQUESTER_EMAIL is required."; exit 1; }
-    [[ ! "$INPUT_REQUESTER_EMAIL" =~ ^[a-zA-Z0-9._%+-]+@airbus\.com$ ]] && { log_error "REQUESTER_EMAIL must be @airbus.com"; exit 1; }
+    [[ ! "$INPUT_REQUESTER_EMAIL" =~ ^[a-zA-Z0-9._%+-]+@zzz\.com$ ]] && { log_error "REQUESTER_EMAIL must be @zzzz.com"; exit 1; }
     [[ -z "$INPUT_REQUEST_ID" || "$INPUT_REQUEST_ID" == "REQ00000000000XX" ]] && { log_error "REQUEST_ID is required."; exit 1; }    
 
     if [[ "$INPUT_REGISTRY_AUTH" == "true" ]]; then

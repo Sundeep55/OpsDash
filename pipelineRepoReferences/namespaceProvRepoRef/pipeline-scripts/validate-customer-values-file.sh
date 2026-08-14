@@ -32,7 +32,7 @@ function validate_customer_values_file_input() {
     for TARGET_FILE in $CHANGES; do
         echo "------------------------------------------------------------"
         
-        LIFECYCLE=$(yq '.dcs-namespace-provisioner.requiredLabels["dcs.airbus.com/lifecycle"]' "$TARGET_FILE")
+        LIFECYCLE=$(yq '.dcs-namespace-provisioner.requiredLabels["dcs.zzz.com/lifecycle"]' "$TARGET_FILE")
         log_info "Checking: $TARGET_FILE (Lifecycle: $LIFECYCLE)"
         
         if [[ "$LIFECYCLE" == "prod" ]]; then

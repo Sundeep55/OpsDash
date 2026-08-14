@@ -4,18 +4,18 @@ dcs-namespace-provisioner:
 
   # Required labels and annotations for the Kubernetes Resources
   requiredLabels:
-    dcs.airbus.com/tenant_name: "__TENANT_NAME__"
-    dcs.airbus.com/tenant_project: "__TENANT_PROJECT__"
-    dcs.airbus.com/target_cluster: "__TARGET_CLUSTER__"
-    dcs.airbus.com/managed_cluster: "true"
-    dcs.airbus.com/lifecycle: "__LIFECYCLE__"
+    dcs.zzz.com/tenant_name: "__TENANT_NAME__"
+    dcs.zzz.com/tenant_project: "__TENANT_PROJECT__"
+    dcs.zzz.com/target_cluster: "__TARGET_CLUSTER__"
+    dcs.zzz.com/managed_cluster: "true"
+    dcs.zzz.com/lifecycle: "__LIFECYCLE__"
     app: "__APP_LABEL__"
     siglum: "__SIGLUM__"
 
   # Optional labels and annotations for the Kubernetes Resources
   additionalLabels:
     cost_center: "__COST_CENTER__"
-    dcs.airbus.com/egressip_name: "dcsc-ei-__TENANT_NAME__"
+    dcs.zzz.com/egressip_name: "dcsc-ei-__TENANT_NAME__"
 
   # Optional labels and annotations for the Kubernetes Resources
   additionalAnnotations:

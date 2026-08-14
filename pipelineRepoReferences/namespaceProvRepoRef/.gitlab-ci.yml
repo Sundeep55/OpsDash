@@ -5,7 +5,7 @@ spec:
       default: "REQ00000000000XX"
     REQUESTER_EMAIL:
       description: "The primary email address of the project owner or requester."
-      default: "projectowner@airbus.com"
+      default: "projectowner@xxx.com"
     REQUESTED_TIMESTAMP:
       description: "The official provision request time from the ITSM ticket DD/MM/YYYY HH:MM:SS."
       default: "01/04/2026 13:47:48"
@@ -38,7 +38,7 @@ spec:
       default: "dev"
     ARD_LINK:
       description: "In case of **Prod** Namespaces, please specify the url/path to the ARD. (In case user provides ARD as an attachment, upload it to a common share and provide the URL here)"
-      default: "https://googlespace.airbus.com/path/to/my/ard.docx"
+      default: "https://googlespace.com/path/to/my/ard.docx"
     ROUTE_EXCEPTION:
       description: "Enable if the tenant owner has requested a security exception to allow ROUTES in dev namesapce"
       type: boolean

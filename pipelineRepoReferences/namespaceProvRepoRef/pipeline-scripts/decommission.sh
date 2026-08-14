@@ -25,12 +25,12 @@ function validate_inputs() {
 
     # Check Email
     case "$INPUT_REQUESTER_EMAIL" in
-      "projectowner@airbus.com" | \
+      "projectowner@zzz.com" | \
       "user@example.com" | \
-      "projectowneruser01@airbus.com" | \
-      "projectowneruser02@airbus.com" | \
-      "projectuser01@airbus.com" | \
-      "projectuser02@airbus.com")
+      "projectowneruser01@zzz.com" | \
+      "projectowneruser02@zzz.com" | \
+      "projectuser01@zzz.com" | \
+      "projectuser02@zzz.com")
           log_error "'REQUESTER_EMAIL' was left as default ($INPUT_REQUESTER_EMAIL). Please provide the real requester's email."
           exit 1
           ;;

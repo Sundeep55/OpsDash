@@ -36,12 +36,12 @@ function validate_inputs() {
 
     # Check Email
     case "$INPUT_REQUESTER_EMAIL" in
-      "projectowner@airbus.com" | \
+      "projectowner@zzz.com" | \
       "user@example.com" | \
-      "projectowneruser01@airbus.com" | \
-      "projectowneruser02@airbus.com" | \
-      "projectuser01@airbus.com" | \
-      "projectuser02@airbus.com")
+      "projectowneruser01@zzz.com" | \
+      "projectowneruser02@zzz.com" | \
+      "projectuser01@zzz.com" | \
+      "projectuser02@zzz.com")
           log_error "'REQUESTER_EMAIL' was left as default ($INPUT_REQUESTER_EMAIL). Please provide the real requester's email."
           exit 1
           ;;
@@ -109,7 +109,7 @@ function validate_inputs() {
             exit 1
         fi
         # Check ARD Default
-        if [[ "$INPUT_ARD_LINK" == "https://googlespace.airbus.com/path/to/my/ard.docx" ]]; then
+        if [[ "$INPUT_ARD_LINK" == "https://googlespace.zzz.com/path/to/my/ard.docx" ]]; then
             log_error "ARD link is set to default."
             log_error "Please enter a valid ARD link."
             exit 1
@@ -312,7 +312,7 @@ function sanity_checks() {
 
     # Check if the user already has a devspace namespace
     if [[ "${INPUT_NAMESPACE_IS_FOR_DEVSPACE,,}" == "true" ]] && [ "$IS_EXISTING_PROJECT" == "false" ]; then
-      RESULT=$(find "$INPUT_TARGET_CLUSTER" -name "values.yaml" -type f -exec yq e 'select((."dcs-namespace-provisioner".devspaceConfig.isDevspace == true or ."dcs-namespace-provisioner".devspaceConfig.isDevspace == "true") and ."dcs-namespace-provisioner".devspaceConfig.devspaceUser == "'"${INPUT_REQUESTER_EMAIL}"'") | ."dcs-namespace-provisioner".project_namespace + "|" + ."dcs-namespace-provisioner".requiredLabels."dcs.airbus.com/tenant_name"' {} + 2>/dev/null | grep -v -e '^null|null$' -e '^|$' -e '^$' || true)
+      RESULT=$(find "$INPUT_TARGET_CLUSTER" -name "values.yaml" -type f -exec yq e 'select((."dcs-namespace-provisioner".devspaceConfig.isDevspace == true or ."dcs-namespace-provisioner".devspaceConfig.isDevspace == "true") and ."dcs-namespace-provisioner".devspaceConfig.devspaceUser == "'"${INPUT_REQUESTER_EMAIL}"'") | ."dcs-namespace-provisioner".project_namespace + "|" + ."dcs-namespace-provisioner".requiredLabels."dcs.zzz.com/tenant_name"' {} + 2>/dev/null | grep -v -e '^null|null$' -e '^|$' -e '^$' || true)
 
       if [[ -n "$RESULT" ]]; then
         # Split the RESULT string based on the pipe "|" delimiter
@@ -677,7 +677,7 @@ function run_scaffold_cso() {
       fi
 
       # Create a new object on .dcs-egress.egressIPResources
-      yq -i '.dcs-egress.egressIPResources += [{"name": strenv(EGRESSIP_NAME), "egressIPs": [], "namespaceSelector": {"matchLabels": {"dcs.airbus.com/egressip_name": strenv(EGRESSIP_NAME)}}}]' "$VALUES_FILE"
+      yq -i '.dcs-egress.egressIPResources += [{"name": strenv(EGRESSIP_NAME), "egressIPs": [], "namespaceSelector": {"matchLabels": {"dcs.zzz.com/egressip_name": strenv(EGRESSIP_NAME)}}}]' "$VALUES_FILE"
 
       # Loop IPs logic
       for IP in $AVAILABLE_IPS; do

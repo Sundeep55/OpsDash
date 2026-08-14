@@ -175,7 +175,7 @@ GITOPS_LAYOUT = {
 }
 
 PORTAL_NAME = "Ops Control Plane"
-PORTAL_TITLE = "Airbus IDP Dashboard"
+PORTAL_TITLE = "IDP Dashboard"
 GIT_BROWSER_URL = os.environ.get('GIT_BROWSER_URL', '')
 
 LOGIN_URL = '/accounts/login/'
