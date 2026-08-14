@@ -1,0 +1,188 @@
+spec:
+  inputs:
+    REQUEST_ID:
+      description: "The unique ITSM Request ID associated with this provisioning task."
+      default: "REQ00000000000XX"
+    REQUESTER_EMAIL:
+      description: "The primary email address of the project owner or requester."
+      default: "projectowner@airbus.com"
+    REQUESTED_TIMESTAMP:
+      description: "The official provision request time from the ITSM ticket DD/MM/YYYY HH:MM:SS."
+      default: "01/04/2026 13:47:48"
+    TENANT_NAME:
+      description: "The unique identifier or name of the tenant/customer"
+      default: "tenantName"
+    TENANT_PROJECT:
+      description: "The project namespace provided by the customer (e.g., dcsc-projecta-1). Note: This is automatically generated for DevSpace projects."
+      default: "dcsc-"
+    EGRESSIP_SUBNET:
+      description: "Select the Subnet and the number of IPs to assign to EgressIP"
+      options:
+        - "NONE"
+        - "192.168.2.0/24(1)IP"
+        - "192.168.2.0/24(2)IPs"
+      default: "NONE"
+    TARGET_CLUSTER:
+      description: "The target DCS cluster where the project will be deployed (e.g., qa-w1)."
+      options: ["qa-w1"]
+      default: "qa-w1"
+    SIGLUM:
+      description: "The organizational siglum or department code associated with this tenant."
+      default: "TDXX"
+    COST_CENTER:
+      description: "The Billing or WBS code for the project. Leave empty if the project is non-billable (Required for new tenants only)."
+      default: "XX/YY0000-00000"
+    LIFECYCLE:
+      description: "The environmental lifecycle stage for this deployment."
+      options: ["dev", "prod"]
+      default: "dev"
+    ARD_LINK:
+      description: "In case of **Prod** Namespaces, please specify the url/path to the ARD. (In case user provides ARD as an attachment, upload it to a common share and provide the URL here)"
+      default: "https://googlespace.airbus.com/path/to/my/ard.docx"
+    ROUTE_EXCEPTION:
+      description: "Enable if the tenant owner has requested a security exception to allow ROUTES in dev namesapce"
+      type: boolean
+      default: false
+    NAMESPACE_IS_FOR_DEVSPACE:
+      description: "Indicates whether the namespace is intended for use as a user DevSpace."
+      type: boolean
+      default: false
+    CSO_CREATE:
+      description: "For EgressIP creation CSO(cluster scope object) for a specific tenant."
+      type: boolean
+      default: false
+    TENANT_ADD_NS_TO_SERVICE_MESH:
+      description: "Determines if the namespace should be integrated into an existing tenant service mesh."
+      type: boolean
+      default: false
+    TENANT_DEPLOY_SERVICE_MESH:
+      description: "Specifies whether to deploy a dedicated service mesh instance for this tenant."
+      type: boolean
+      default: false
+    GPU_ENABLED:
+      description: "Specifies whether to enable the GPU Node for the tenant."
+      type: boolean
+      default: false
+    GPU_TIERS:
+      description: "Select 'standard' for shared access. For dedicated GPUs, select 'dedicated.h200.1g.18gb' (pre-partitioned) or 'dedicated.h200' (full card without partitions)."
+      options: ["None", "standard", "dedicated.h200", "dedicated.h200.1g.18gb"]
+      default: "None"
+    ARGOCD_OPERATOR_SERVICES:
+      description: "Specifies whether to enable the ArgoCD Operator for the tenant."
+      type: boolean
+      default: false
+    GITLAB_OPERATOR_SERVICES:
+      description: "Specifies whether to enable the GitLab Operator for the tenant."
+      type: boolean
+      default: false
+    CLOUDNATIVEPG_OPERATOR_SERVICES:
+      description: "Specifies whether to enable the CloudNativePG Operator for the tenant."
+      type: boolean
+      default: false
+    CERT_MANAGER_OPERATOR_SERVICES:
+      description: "Specifies whether to enable the Cert Manager Operator for the tenant."
+      type: boolean
+      default: false
+    LOKI_OPERATOR_SERVICES:
+      description: "Specifies whether to enable the Loki Operator for the tenant."
+      type: boolean
+      default: false
+    DECOMMISSION:
+      description: "Specifies whether to decommission the target namespace or project."
+      type: boolean
+      default: false
+    DECOMMISSION_CSO:
+      description: "For EgressIP decommission CSO(cluster scope object) for a specific tenant."
+      type: boolean
+      default: false
+---
+
+# Include the auto-update logic
+include:
+  - local: '.gitlab/auto-update.yml'
+
+stages:
+  - validate
+  - scaffold
+  - decommission
+  - syncmetadata
+  - maintenance
+
+.base-job:
+  image: ${HARBOR_URL}/dcs-internal-images/pipeline-tools:1.1.3
+  tags:
+    - pipeline
+  variables:
+    TZ: "Europe/Paris"  # Global Timezone Setting
+    GIT_SSL_NO_VERIFY: "true"
+    INPUT_REQUESTER_EMAIL: $[[ inputs.REQUESTER_EMAIL ]]
+    INPUT_REQUEST_ID: $[[ inputs.REQUEST_ID ]]
+    INPUT_REQUESTED_TIMESTAMP: $[[ inputs.REQUESTED_TIMESTAMP ]]
+    INPUT_SIGLUM: $[[ inputs.SIGLUM ]]
+    INPUT_COST_CENTER: $[[ inputs.COST_CENTER ]]
+    INPUT_TENANT_NAME: $[[ inputs.TENANT_NAME ]]
+    INPUT_TENANT_PROJECT: $[[ inputs.TENANT_PROJECT ]]
+    INPUT_TARGET_CLUSTER: $[[ inputs.TARGET_CLUSTER ]]
+    INPUT_LIFECYCLE: $[[ inputs.LIFECYCLE ]]
+    INPUT_ARD_LINK: $[[ inputs.ARD_LINK ]]
+    INPUT_ADD_NS_TO_MESH: $[[ inputs.TENANT_ADD_NS_TO_SERVICE_MESH ]]
+    INPUT_DEPLOY_MESH: $[[ inputs.TENANT_DEPLOY_SERVICE_MESH ]]
+    INPUT_NAMESPACE_IS_FOR_DEVSPACE: $[[ inputs.NAMESPACE_IS_FOR_DEVSPACE ]]
+    INPUT_ROUTE_EXCEPTION: $[[ inputs.ROUTE_EXCEPTION ]]
+    INPUT_CSO_CREATE: $[[ inputs.CSO_CREATE ]]
+    INPUT_EGRESSIP_SUBNET: $[[ inputs.EGRESSIP_SUBNET ]]
+    INPUT_DECOMMISSION: $[[ inputs.DECOMMISSION ]]
+    INPUT_DECOMMISSION_CSO: $[[ inputs.DECOMMISSION_CSO ]]
+    INPUT_ARGOCD_OPERATOR_SERVICES: $[[ inputs.ARGOCD_OPERATOR_SERVICES ]]
+    INPUT_GITLAB_OPERATOR_SERVICES: $[[ inputs.GITLAB_OPERATOR_SERVICES ]]
+    INPUT_CLOUDNATIVEPG_OPERATOR_SERVICES: $[[ inputs.CLOUDNATIVEPG_OPERATOR_SERVICES ]]
+    INPUT_CERT_MANAGER_OPERATOR_SERVICES: $[[ inputs.CERT_MANAGER_OPERATOR_SERVICES ]]
+    INPUT_LOKI_OPERATOR_SERVICES: $[[ inputs.LOKI_OPERATOR_SERVICES ]]
+    INPUT_GPU_ENABLED: $[[ inputs.GPU_ENABLED ]]
+    INPUT_GPU_TIERS: $[[ inputs.GPU_TIERS ]]
+
+validate-mr-permissions:
+  stage: validate
+  extends: .base-job
+  script:
+    - chmod +x ./pipeline-scripts/validate-customer-values-file.sh
+    - ./pipeline-scripts/validate-customer-values-file.sh
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+
+scaffold-tenant:
+  stage: scaffold
+  extends: .base-job
+  script:
+    - echo ">>> Scaffolding Mode Selected <<<"
+    - chmod +x ./pipeline-scripts/scaffold.sh
+    - ./pipeline-scripts/scaffold.sh
+  rules:
+    - if: '$SYNC_METADATA == "true"'
+      when: never
+    - if: '($INPUT_DECOMMISSION == "true" || $INPUT_DECOMMISSION_CSO=="true")'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+
+decommission-tenant:
+  stage: decommission
+  extends: .base-job
+  script:
+    - echo ">>> Decommissioning Mode Selected <<<"
+    - chmod +x ./pipeline-scripts/decommission.sh
+    - ./pipeline-scripts/decommission.sh
+  rules:
+    - if: '$SYNC_METADATA == "true"'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "web" && ($INPUT_DECOMMISSION == "true" || $INPUT_DECOMMISSION_CSO=="true")'
+
+sync-metadata:
+  stage: syncmetadata
+  extends: .base-job
+  script:
+    - echo ">>> Sync Mode Selected <<<"
+    - chmod +x ./pipeline-scripts/sync-metadata.sh
+    - ./pipeline-scripts/sync-metadata.sh
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web" && $SYNC_METADATA == "true"'

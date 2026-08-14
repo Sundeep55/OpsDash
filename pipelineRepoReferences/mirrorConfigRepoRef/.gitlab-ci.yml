@@ -1,0 +1,86 @@
+spec:
+  inputs:
+    REQUESTER_EMAIL:
+      description: "The primary email address of the requester."
+      default: "requester@example.com"
+    REQUEST_ID:
+      description: "The unique ITSM request ID associated with this mirror request."
+      default: "REQ00000000000XX"
+    REQUESTED_TIMESTAMP:
+      description: "The official provision request time from the ITSM ticket (Format: ISO 8601 YYYY-MM-DDTHH:MM:SS)."
+      default: "202X-01-01T09:30:00"      
+    TENANT_NAME:
+      description: "The existing tenant name in dcs-customer-instances."
+      default: "tenantName"
+    TARGET_CLUSTER:
+      description: "The target DCS cluster where the tenant exists."
+      default: "qa-w1"
+      options: ["qa-w1"]
+    REPLICATION_TYPE:
+      description: "Wether the replication is external or internal within DCS"
+      default: "external"
+      options: ["external", "dcs-internal", "dcs-internal-div-nat"]
+    REGISTRY_URL:
+      description: "The full URL of the external registry to mirror from"
+      default: "https://registry.example.com"
+    REGISTRY_PROVIDER:
+      description: "Type of registry provider for the registry, select harbor when replication type is internal"
+      default: "docker-registry"
+      options: ["docker-registry","docker-hub","harbor", "jfrog"]
+    REGISTRY_AUTH:
+      description: "Whether authentication is required for the external registry."
+      type: boolean
+      default: false
+    REGISTRY_USERNAME:
+      description: "The username (accessId) for the external registry (required if REGISTRY_AUTH is true)"
+      default: "my-registry-username"
+    REGISTRY_SECRET_REF:
+      description: "The name of the k8s secret containing registry credentials (required if REGISTRY_AUTH is true)."
+      default: "my-registry-secret"
+    HARBOR_PROJECT:
+      description: "The Harbor project to replicate images into."
+      default: "my-harbor-project"
+    IMAGE_NAME:
+      description: "The image path to replicate. You can pass multiple images separated by commas (e.g., library/nginx, myproject/myapp)."
+      default: "library/myimage"
+    IMAGE_TAG:
+      description: "The image tag. Leave empty to replicate all tags. If you provide a single tag, it will apply to all images in the list."
+      default: "latest"
+---
+
+stages:
+  - scaffold-mirror
+
+.base-job:
+  image: ${HARBOR_URL}/dcs-internal-images/pipeline-tools:1.1.3
+  tags:
+    - pipeline
+  variables:
+    TZ: "Europe/Paris"
+    GIT_SSL_NO_VERIFY: "true"
+    INPUT_TENANT_NAME: $[[ inputs.TENANT_NAME ]]
+    INPUT_TARGET_CLUSTER: $[[ inputs.TARGET_CLUSTER ]]
+    INPUT_REPLICATION_TYPE: $[[ inputs.REPLICATION_TYPE ]]
+    #INPUT_REGISTRY_NAME: $[[ inputs.REGISTRY_NAME ]]
+    INPUT_REGISTRY_URL: $[[ inputs.REGISTRY_URL ]]
+    INPUT_REGISTRY_PROVIDER: $[[ inputs.REGISTRY_PROVIDER ]]
+    INPUT_REGISTRY_AUTH: $[[ inputs.REGISTRY_AUTH ]]
+    INPUT_REGISTRY_USERNAME: $[[ inputs.REGISTRY_USERNAME ]]
+    INPUT_REGISTRY_SECRET_REF: $[[ inputs.REGISTRY_SECRET_REF ]]
+    INPUT_HARBOR_PROJECT: $[[ inputs.HARBOR_PROJECT ]]
+    INPUT_IMAGE_NAME: $[[ inputs.IMAGE_NAME ]]
+    INPUT_IMAGE_TAG: $[[ inputs.IMAGE_TAG ]]
+    INPUT_REQUESTER_EMAIL: $[[ inputs.REQUESTER_EMAIL ]]
+    INPUT_REQUEST_ID: $[[ inputs.REQUEST_ID ]]
+    INPUT_REQUESTED_TIMESTAMP: $[[ inputs.REQUESTED_TIMESTAMP ]]
+
+scaffold-registry-mirror:
+  stage: scaffold-mirror
+  extends: .base-job
+  script:
+    - echo ">>> Registry Mirror Scaffolding Mode <<<"
+    - chmod +x ./pipeline-scripts/scaffold-registry-mirror.sh
+    - ./pipeline-scripts/scaffold-registry-mirror.sh
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
