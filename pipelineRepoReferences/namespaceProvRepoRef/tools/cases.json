@@ -1,0 +1,652 @@
+{
+  "_comment": [
+    "Every validation case, in one file, used by three runners:",
+    "",
+    "  tools/test-cases.sh    the shell shim  - checks expect, message and exports",
+    "  pages/parity.html      the browser     - checks expect only",
+    "",
+    "There used to be two case files. A rule asserted in one and not the other is",
+    "a rule that gets enforced in one place and not the other, which is exactly",
+    "the failure this whole design exists to prevent. One file.",
+    "",
+    "`message` and `exports` are shim-only: the browser has no environment to",
+    "export into and words its errors for a human, so it checks accept/reject.",
+    "`raw_payload` sends a literal string instead of an object, for the",
+    "malformed-JSON cases."
+  ],
+  "cases": [
+    {
+      "name": "minimal namespace.create",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "cost centre explicitly empty",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "",
+        "lifecycle": "dev"
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "cost centre omitted entirely",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "lifecycle": "dev"
+      },
+      "expect": "reject",
+      "message": "cost_center"
+    },
+    {
+      "name": "request id missing",
+      "operation": "namespace.create",
+      "payload": {
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "reject",
+      "message": "request_id"
+    },
+    {
+      "name": "siglum is upper-cased",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "td01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_SIGLUM": "TD01"
+      }
+    },
+    {
+      "name": "tenant name is lower-cased",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "ACME",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_TENANT_NAME": "acme"
+      }
+    },
+    {
+      "name": "email is lower-cased",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "A.B@ZZZ.COM",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_REQUESTER_EMAIL": "a.b@zzz.com"
+      }
+    },
+    {
+      "name": "unknown field",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev",
+        "tenat_name": "typo"
+      },
+      "expect": "reject",
+      "message": "Unknown field"
+    },
+    {
+      "name": "field belonging to another operation",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev",
+        "images": "nginx"
+      },
+      "expect": "reject",
+      "message": "not accepted by operation"
+    },
+    {
+      "name": "unknown operation",
+      "operation": "namespace.destroy",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "reject",
+      "message": "Unknown OPERATION"
+    },
+    {
+      "name": "cluster off the option list",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w2",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "reject",
+      "message": "must be one of"
+    },
+    {
+      "name": "lifecycle off the option list",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "staging"
+      },
+      "expect": "reject",
+      "message": "must be one of"
+    },
+    {
+      "name": "boolean that is not true/false",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev",
+        "gpu_enabled": "yes"
+      },
+      "expect": "reject",
+      "message": "true or false"
+    },
+    {
+      "name": "cost centre with illegal characters",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX YY",
+        "lifecycle": "dev"
+      },
+      "expect": "reject",
+      "message": "format"
+    },
+    {
+      "name": "timestamp in ISO instead of the MyITSM format",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "2026-04-01T13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "reject",
+      "message": "MyITSM"
+    },
+    {
+      "name": "impossible month",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/13/2026 00:00:00",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "reject",
+      "message": "month"
+    },
+    {
+      "name": "impossible hour",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/01/2026 25:00:00",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "reject",
+      "message": "hour"
+    },
+    {
+      "name": "bad email",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "not-an-email",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "reject",
+      "message": "email"
+    },
+    {
+      "name": "reserved namespace prefix",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev",
+        "namespace_name": "dcsc-ds-x"
+      },
+      "expect": "reject",
+      "message": "reserved"
+    },
+    {
+      "name": "DD/MM/YYYY is converted to ISO on export",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_REQUESTED_TIMESTAMP": "2026-04-01T13:47:48"
+      }
+    },
+    {
+      "name": "day and month are not transposed",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "03/11/2026 09:05:01",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_REQUESTED_TIMESTAMP": "2026-11-03T09:05:01"
+      }
+    },
+    {
+      "name": "prod without an ARD",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "prod"
+      },
+      "expect": "reject",
+      "message": "ard_link"
+    },
+    {
+      "name": "prod with an ARD",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "prod",
+        "ard_link": "https://x/ard.docx"
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "gpu on without a tier",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev",
+        "gpu_enabled": "true"
+      },
+      "expect": "reject",
+      "message": "gpu_tier"
+    },
+    {
+      "name": "gpu on with a tier",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev",
+        "gpu_enabled": "true",
+        "gpu_tier": "standard"
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "gpu off forces the literal None",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_GPU_TIER": "None",
+        "INPUT_ARD_LINK": ""
+      }
+    },
+    {
+      "name": "route exception supplied on a prod request is hidden, not an error",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "prod",
+        "ard_link": "https://x",
+        "route_exception": "true"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_ROUTE_EXCEPTION": "false"
+      }
+    },
+    {
+      "name": "namespace.create sets CREATE_CSO false",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_CREATE_CSO": "false"
+      }
+    },
+    {
+      "name": "cso.create minimal",
+      "operation": "cso.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev",
+        "egressip_allocation": "NONE"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_CREATE_CSO": "true"
+      }
+    },
+    {
+      "name": "namespace.decommission sets DECOMMISSION_CSO false",
+      "operation": "namespace.decommission",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "namespace_name": "dcsc-acme-a1b2"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_DECOMMISSION_CSO": "false"
+      }
+    },
+    {
+      "name": "cso.decommission sets DECOMMISSION_CSO true",
+      "operation": "cso.decommission",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "namespace_name": "dcsc-ei-abc"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_DECOMMISSION_CSO": "true"
+      }
+    },
+    {
+      "name": "decommission without a cost centre",
+      "operation": "namespace.decommission",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "namespace_name": "dcsc-acme-a1b2"
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "mirror external without auth",
+      "operation": "mirror.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "harbor_project": "dev-acme",
+        "registry_url": "https://reg.example.com",
+        "images": "library/nginx"
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "mirror auth on without credentials",
+      "operation": "mirror.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "harbor_project": "dev-acme",
+        "registry_url": "https://reg.example.com",
+        "images": "library/nginx",
+        "registry_needs_credentials": "true"
+      },
+      "expect": "reject",
+      "message": "registry_username"
+    },
+    {
+      "name": "mirror auth on with credentials",
+      "operation": "mirror.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "harbor_project": "dev-acme",
+        "registry_url": "https://reg.example.com",
+        "images": "library/nginx",
+        "registry_needs_credentials": "true",
+        "registry_username": "u",
+        "registry_secret_ref": "s"
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "mirror internal: credentials chain is hidden, so missing username is fine",
+      "operation": "mirror.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "harbor_project": "dev-acme",
+        "registry_url": "https://reg.example.com",
+        "images": "library/nginx",
+        "replication_type": "dcs-internal"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_REGISTRY_NEEDS_CREDENTIALS": "false",
+        "INPUT_REGISTRY_USERNAME": ""
+      }
+    },
+    {
+      "name": "registry url must be https",
+      "operation": "mirror.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "harbor_project": "dev-acme",
+        "registry_url": "http://reg.example.com",
+        "images": "library/nginx"
+      },
+      "expect": "reject",
+      "message": "format"
+    },
+    {
+      "name": "payload that is not JSON",
+      "operation": "namespace.create",
+      "raw_payload": "not json",
+      "expect": "reject",
+      "message": "JSON object"
+    },
+    {
+      "name": "payload that is a JSON array",
+      "operation": "namespace.create",
+      "raw_payload": "[1,2,3]",
+      "expect": "reject",
+      "message": "JSON object"
+    }
+  ]
+}

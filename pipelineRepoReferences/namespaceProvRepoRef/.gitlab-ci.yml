@@ -45,6 +45,7 @@ stages:
   - validate
   - scaffold
   - decommission
+  - deploy
 
 # Global rather than job-level so `rules:` can read them without depending on
 # how `extends:` merges variables.
@@ -90,12 +91,13 @@ validate-schema:
   script:
     - chmod +x ./tools/*.sh
     - ./tools/check-schema-drift.sh
-    - ./tools/test-load-payload.sh
+    - ./tools/test-cases.sh
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - request-schema.yaml
         - pipeline-scripts/**/*
+        - pages/**/*
         - tools/**/*
 
 scaffold-namespace:
@@ -139,3 +141,30 @@ scaffold-mirror:
     - if: '$CI_PIPELINE_SOURCE == "web"'
     - if: '$CI_PIPELINE_SOURCE == "trigger"'
     - if: '$CI_PIPELINE_SOURCE == "api"'
+
+# The onboarding form. Static HTML that renders itself from request-schema.yaml,
+# so a field added to the schema appears here without anyone touching pages/.
+#
+# It also emits index.json — every cluster, tenant and namespace in this
+# checkout. That is the piece that stops operators writing names down before
+# triggering a pipeline, and it is only possible because this repo *is*
+# dcs-customer-instances: the job is already standing in the tree it describes.
+#
+# Rebuilt on every merge to main, which is exactly when tenants and namespaces
+# come into existence, since they are created by merging a scaffold branch.
+#
+# Turn on Pages access control for this project. The index carries requester
+# addresses and cost centres — nothing a project member cannot already read from
+# the repository, but concentrated into one file.
+pages:
+  stage: deploy
+  extends: .base-job
+  script:
+    - chmod +x ./tools/*.sh
+    - ./tools/build-pages.sh public
+    - cp ./tools/cases.json public/
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

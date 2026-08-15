@@ -1,0 +1,139 @@
+/* Hand-written, no build step, no CDN — this has to serve from GitLab Pages in
+   an airgapped environment. */
+
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --ink: #1b2733;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --accent: #1f6feb;
+  --accent-ink: #ffffff;
+  --bad: #b42318;
+  --bad-bg: #fef3f2;
+  --good: #067647;
+  --warn-bg: #fffaeb;
+  --warn-line: #f5d78e;
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1419; --card: #161b22; --ink: #e6edf3; --muted: #8b949e;
+    --line: #30363d; --accent: #4c8dff; --bad: #ff7b72; --bad-bg: #2d1618;
+    --good: #3fb950; --warn-bg: #2b2412; --warn-line: #6b5416;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.wrap { max-width: 880px; margin: 0 auto; padding: 0 20px; }
+
+.topbar { background: var(--card); border-bottom: 1px solid var(--line); padding: 22px 0; margin-bottom: 24px; }
+.topbar h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+.topbar .sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  margin-bottom: 20px;
+}
+.card h2 { margin: 0 0 16px; font-size: 15px; display: flex; align-items: center; gap: 10px; }
+
+.step {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 12px; font-weight: 600; flex: none;
+}
+
+/* --- operation chooser --- */
+.ops { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.op {
+  text-align: left; padding: 13px 15px; cursor: pointer;
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px;
+  font: inherit;
+}
+.op:hover { border-color: var(--accent); }
+.op[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.op b { display: block; font-size: 14px; font-weight: 600; }
+.op span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+
+/* --- context banner (create vs update) --- */
+.context {
+  border: 1px solid var(--warn-line); background: var(--warn-bg);
+  border-radius: 8px; padding: 11px 14px; margin-bottom: 18px; font-size: 13px;
+}
+.context.is-new { border-color: var(--line); background: var(--bg); }
+
+/* --- form --- */
+.group { border: 0; padding: 0; margin: 0 0 22px; }
+.group > legend { padding: 0; font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted); margin-bottom: 10px; }
+
+.field { margin-bottom: 14px; }
+.field > label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.field .req { color: var(--bad); margin-left: 3px; }
+.field .desc { display: block; font-weight: 400; color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+input[type=text], input[type=email], input[type=url], input[type=password], select {
+  width: 100%; padding: 8px 10px; font: inherit;
+  color: var(--ink); background: var(--card);
+  border: 1px solid var(--line); border-radius: 7px;
+}
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+
+.field.bool { display: flex; align-items: flex-start; gap: 9px; }
+.field.bool > label { margin: 0; font-weight: 500; }
+.field.bool input { margin-top: 3px; }
+
+.field.bad input, .field.bad select { border-color: var(--bad); }
+.err { color: var(--bad); font-size: 12px; margin-top: 4px; }
+
+/* --- submit --- */
+.problems {
+  border: 1px solid var(--bad); background: var(--bad-bg); color: var(--bad);
+  border-radius: 8px; padding: 11px 14px; margin-bottom: 16px; font-size: 13px;
+}
+.problems ul { margin: 6px 0 0; padding-left: 18px; }
+
+.payload summary, .settings summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.payload pre {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
+  padding: 12px; overflow-x: auto; font-size: 12.5px; margin: 10px 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.settings { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+.settings .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 12px 0; }
+.settings label { font-size: 13px; font-weight: 600; display: block; }
+.settings input { margin-top: 4px; font-weight: 400; }
+
+.actions { display: flex; align-items: center; gap: 10px; margin: 16px 0 12px; flex-wrap: wrap; }
+button {
+  font: inherit; padding: 8px 15px; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.quiet { color: var(--muted); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+
+.status { font-size: 13px; color: var(--muted); }
+.status.ok { color: var(--good); }
+.status.bad { color: var(--bad); }
+
+.hint { color: var(--muted); font-size: 12.5px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
+
+.foot { color: var(--muted); font-size: 12px; padding-bottom: 30px; }

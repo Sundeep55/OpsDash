@@ -1,6 +1,33 @@
 # Extending the onboarding pipeline
 
-Four recipes, roughly in order of how often they come up:
+## What you actually have to touch
+
+There are 30-odd files here, which looks like a lot. Almost none of them are
+touch points. For the common changes:
+
+| To do this | Edit | Everything else |
+|---|---|---|
+| Add a field | `request-schema.yaml` + the script that uses its `INPUT_*` | **2 files.** The form, the payload builder, the validator, the picklists and OpsDash all follow on their own. |
+| Add an option to an enum | `request-schema.yaml` (+ a template block if the value maps to one) | 1 file |
+| Add a validation rule | `request-schema.yaml` | 1 file |
+| Add a new operation | `request-schema.yaml`, `.gitlab-ci.yml`, one new script | 3 files |
+| Change the look of the form | `pages/style.css` | 1 file |
+
+Nothing in `pages/` is edited to add a field. The form is generated from the
+schema at page load: groups become sections, `show_if` decides what is on
+screen, `options` becomes a dropdown, `source` becomes a picklist.
+
+**The one optional touch point is `tools/cases.json`** — add a case when you add
+a rule you care about. It is not required for the field to work; it is how you
+find out later if someone breaks it. It used to be two files asserting
+overlapping rules, which was a genuine trap; it is one file now, read by both
+the shell runner and the browser page.
+
+Everything else is either the machine (five pipeline scripts, four form files)
+or a safety net that runs itself in CI (`check-schema-drift.sh`,
+`test-cases.sh`).
+
+## Recipes
 
 1. [Add a field to an existing request](#1-add-a-field)
 2. [Add a field that only sometimes applies](#2-add-a-conditional-field)
@@ -65,7 +92,7 @@ fi
 
 ```bash
 ./tools/check-schema-drift.sh
-./tools/test-load-payload.sh
+./tools/test-cases.sh
 ```
 
 That is the whole procedure. The Pages form and OpsDash pick the field up with
@@ -267,15 +294,44 @@ a script is what produced a siglum check that could never fire.
 
 ```bash
 ./tools/check-schema-drift.sh     # schema and scripts still agree
-./tools/test-load-payload.sh      # the gate still enforces what it claims to
+./tools/test-cases.sh             # the gate still enforces what it claims to
 bash -n pipeline-scripts/*.sh     # nothing is syntactically broken
 ```
 
-Both of the first two also run as the `validate-schema` job on any merge request
-touching the schema, the scripts or the tools.
+The first two also run as the `validate-schema` job on any merge request
+touching the schema, the scripts, the form or the tools.
 
-If you changed how a field is validated, add a case to
-`tools/test-load-payload.sh`. It is a plain list of
-`accepts` / `rejects` / `exports` lines against the real schema. It caught two
-genuine defects the first time it ran, one of which had made every
-`required: true` in the schema invisible.
+### If you changed a validation rule
+
+Add a case to `tools/cases.json`:
+
+```json
+{ "name": "backup bucket is required once backups are on",
+  "operation": "namespace.create",
+  "payload": { "...": "...", "backup_enabled": "true" },
+  "expect": "reject",
+  "message": "backup_bucket" }
+```
+
+`expect` is `accept` or `reject`. `message` (optional) is a substring the
+rejection must mention. `exports` (optional) asserts the `INPUT_*` values the
+scripts would end up reading:
+
+```json
+  "exports": { "INPUT_BACKUP_BUCKET": "", "INPUT_GPU_TIER": "None" }
+```
+
+One file, two runners. `tools/test-cases.sh` runs it through the shell shim and
+checks all three things. `pages/parity.html` runs the same file through the
+browser engine and checks `expect` — the browser has no environment to export
+into and words its errors for a human, so `message` and `exports` are shim-only.
+
+Both must agree. That is the point: the shim is the gate, and the browser copy
+exists so an operator learns about a mistake while typing rather than from a red
+pipeline. A rule only one of them enforces is a rule the operator meets twice or
+never. Merging the two case files that used to exist immediately exposed three
+such rules that the browser was silently letting through.
+
+This suite has earned its keep: it caught two defects on its first run, one of
+which made every `required: true` in the schema invisible, so nothing was
+required at all.

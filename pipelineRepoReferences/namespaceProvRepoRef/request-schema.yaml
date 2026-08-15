@@ -414,10 +414,19 @@ fields:
     required_if: { gpu_enabled: "true" }
 
   # --- Operators ---------------------------------------------------------
-  # Note for whoever extends these: the scaffold script only ever sets an
-  # operator to `true`. There is no branch that sets `false`, so an operator
-  # cannot currently be turned off through the pipeline. Making these
-  # three-state is a scaffold-script change, not a schema change.
+  # These are deliberately one-way: the scaffold script sets an operator to
+  # `true` and never to `false`.
+  #
+  # The reason is that a request carries no knowledge of what is already
+  # enabled. Every toggle defaults to false, so on an *update* an operator who
+  # did not re-tick a box would silently disable an operator the namespace was
+  # already using. One-way means the worst case is a redundant enable rather
+  # than an unnoticed removal.
+  #
+  # Turning an operator off is therefore a manual edit during MR review, on
+  # purpose. Revisit only when the form can read a namespace's current state and
+  # pre-tick these accurately — it cannot today; index.json carries tenants and
+  # namespaces, not per-namespace values.yaml contents.
   argocd_operator:
     group: operators
     label: ArgoCD

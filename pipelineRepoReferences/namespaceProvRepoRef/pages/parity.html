@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Engine parity — schema-form.js</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar"><div class="wrap">
+  <h1>Engine parity</h1>
+  <p class="sub">tools/cases.json, run through pages/schema-form.js. The shell shim runs the same file and must reach the same verdict on every case.</p>
+</div></header>
+<main class="wrap">
+  <div class="card"><div id="summary"></div><pre id="out"></pre></div>
+</main>
+<script src="schema-form.js"></script>
+<script>
+/* Deliberately a page rather than a test runner: there is no Node in the CI
+   image or on the dev boxes, and the browser is where this code actually runs.
+   Open it, or drive it headlessly and read window.PARITY. */
+Promise.all([
+  fetch('schema.json').then(function (r) { return r.json(); }),
+  fetch('cases.json').then(function (r) { return r.json(); })
+]).then(function (res) {
+  var schema = res[0], cases = res[1].cases;
+  // raw_payload cases are malformed JSON on purpose -- the browser never
+  // receives a string here, it builds the object itself, so they are shim-only.
+  cases = cases.filter(function (c) { return !c.raw_payload; });
+  var pass = 0, fail = 0, lines = [], results = {};
+
+  cases.forEach(function (c) {
+    var v = SchemaForm.validate(schema, c.operation, c.payload);
+    var actual = v.ok ? 'accept' : 'reject';
+    results[c.name] = actual;
+    if (actual === c.expect) { pass++; lines.push('  ok    ' + c.name); }
+    else {
+      fail++;
+      lines.push('  FAIL  ' + c.name + '  (expected ' + c.expect + ', got ' + actual + ')' +
+                 (v.ok ? '' : '  [' + Object.keys(v.errors).map(function (k) {
+                    return k + ': ' + v.errors[k]; }).join('; ') + ']'));
+    }
+  });
+
+  document.getElementById('out').textContent = lines.join('\n');
+  document.getElementById('summary').innerHTML =
+    '<strong>' + pass + ' passed, ' + fail + ' failed</strong>';
+  window.PARITY = { engine: 'schema-form.js', pass: pass, fail: fail, results: results };
+}).catch(function (e) {
+  document.getElementById('out').textContent = 'Could not load fixtures: ' + e +
+    '\n\nRun ./tools/build-pages.sh first, and serve the output directory.';
+  window.PARITY = { error: String(e) };
+});
+</script>
+</body>
+</html>

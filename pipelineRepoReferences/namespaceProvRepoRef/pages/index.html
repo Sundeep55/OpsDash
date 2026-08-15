@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Customer onboarding</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <h1>Customer onboarding</h1>
+    <p class="sub">Fill the form, send the request. No pipeline inputs to count.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- Step 1 ---------------------------------------------------------------->
+  <section class="card">
+    <h2><span class="step">1</span> What kind of request?</h2>
+    <div id="operations" class="ops"></div>
+  </section>
+
+  <!-- Step 2 ---------------------------------------------------------------->
+  <section class="card" id="form-card" hidden>
+    <h2><span class="step">2</span> Details</h2>
+    <div id="context" class="context" hidden></div>
+    <form id="request-form" autocomplete="off"></form>
+  </section>
+
+  <!-- Step 3 ---------------------------------------------------------------->
+  <section class="card" id="submit-card" hidden>
+    <h2><span class="step">3</span> Send it</h2>
+
+    <div id="problems" class="problems" hidden></div>
+
+    <details class="payload">
+      <summary>Request payload <span class="hint">— this is exactly what the pipeline receives</span></summary>
+      <pre id="payload"></pre>
+    </details>
+
+    <div class="actions">
+      <button type="button" id="copy" class="primary">Copy request JSON</button>
+      <button type="button" id="trigger">Trigger pipeline</button>
+      <span id="status" class="status"></span>
+    </div>
+
+    <p class="hint">
+      <strong>Copy</strong> always works: paste the JSON into <em>Build&nbsp;→ Pipelines → Run pipeline</em>
+      as <code>REQUEST_PAYLOAD</code>, and set <code>OPERATION</code> alongside it.
+      <strong>Trigger</strong> needs a personal access token, set below — the pipeline then
+      runs as you, so the audit trail names a person rather than a shared token.
+    </p>
+
+    <details class="settings">
+      <summary>Trigger settings</summary>
+      <div class="grid">
+        <label>GitLab URL<input type="text" id="cfg-host" placeholder="https://gitlab.example.com"></label>
+        <label>Project ID or path<input type="text" id="cfg-project" placeholder="dcs/dcs-customer-instances"></label>
+        <label>Branch<input type="text" id="cfg-ref" value="main"></label>
+        <label>Personal access token
+          <input type="password" id="cfg-token" placeholder="glpat-…">
+        </label>
+      </div>
+      <p class="hint">
+        Held in this browser's local storage only, never sent anywhere except to your
+        own GitLab. Use a short-lived token with the <code>api</code> scope and nothing more.
+        Clearing the field removes it.
+      </p>
+      <button type="button" id="cfg-save">Save</button>
+      <button type="button" id="cfg-clear" class="quiet">Clear token</button>
+    </details>
+  </section>
+
+</main>
+
+<footer class="wrap foot">
+  <span id="freshness"></span>
+</footer>
+
+<script src="schema-form.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

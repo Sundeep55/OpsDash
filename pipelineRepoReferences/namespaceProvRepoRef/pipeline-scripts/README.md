@@ -42,7 +42,7 @@ It is also where the MyITSM timestamp is reassembled: the operator pastes
 Sourced rather than executed, so it exports into the calling script's own shell
 — no `eval` of generated text, no dotenv artifact.
 
-Covered by `tools/test-load-payload.sh`. Change it and run that.
+Covered by `tools/cases.json`, run by `tools/test-cases.sh`. Change it and run that.
 
 ## `scaffold-namespace.sh`
 

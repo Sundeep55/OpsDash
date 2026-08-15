@@ -781,3 +781,111 @@ Remaining open, neither blocking Phase 1:
 2. Cross-origin POST to the API from the Pages origin (§4.3) — one probe.
 
 Both are additive to the probe kit that settled the input-count question.
+
+---
+
+## 7b. Phase 2 — as built
+
+Shipped: `pages/` (form), `tools/build-pages.sh` (site + index), a `pages` job,
+and a parity suite tying the browser rules to the shell shim.
+
+**The form renders itself from the schema.** Nothing in `pages/` knows what a
+siglum is. Groups become sections, `show_if` decides what is on screen,
+`options` becomes a dropdown, `source` becomes a picklist. A field added to
+`request-schema.yaml` appears on the form with no change to any file in
+`pages/`.
+
+**The index answers what I previously said only OpsDash could.** `build-pages.sh`
+walks the checkout — this repo *is* dcs-customer-instances — and emits every
+cluster, tenant and namespace plus each tenant's siglum, cost centre and
+requester. Verified against a fixture tree: cluster → tenant → namespace
+picklists narrow correctly, the form states whether a tenant already exists, and
+*"You cannot leave the Project Name empty/default for an existing tenant"* is now
+unreachable because an existing tenant never renders an empty namespace field.
+
+**Two engines, one rule set, checked.** `pages/schema-form.js` is the browser's
+copy of the shim's rules. The obvious risk is drift, so `tools/parity-cases.json`
+holds 25 cases run through *both*: `tools/test-parity.sh` (shell, in CI) and
+`pages/parity.html` (browser). Both currently answer 25/25 identically. The shim
+stays the gate — a browser cannot be a security control — the browser copy exists
+so an operator learns about a mistake while typing.
+
+**End-to-end verified.** A payload produced by the form in a real browser was fed
+verbatim to the shim: accepted, with `03/11/2026 09:05:01` → `2026-11-03T09:05:01`,
+siglum upper-cased, tenant lower-cased, `route_exception` correctly forced off
+and marked "not applicable" for a prod request.
+
+### Still open
+
+| Question | How to close it | If the answer is no |
+|---|---|---|
+| Maximum size of a CI input value | `tools/probe-gitlab.sh`, probe 1 | `REQUEST_PAYLOAD` moves to a CI variable, `OPERATION` stays an input — one line |
+| Can the browser POST cross-origin to the API | `tools/probe-gitlab.sh`, probe 2 (needs a real browser on the deployed site) | The Trigger button reports it; Copy is unaffected and the form stays fully usable |
+
+Neither blocks deploying the form.
+
+### Before this goes live
+
+- turn on **Pages access control** for the project — the index concentrates
+  requester addresses and cost centres into one file, nothing a project member
+  cannot already read from the repo, but concentrated
+- take deferred item 1 (§8) first: the form raises request volume, and
+  `sync_cross_namespace_policies` adds diff noise to every request
+
+---
+
+## 8. Deferred — answered, and what is left to do
+
+Your answers, and where each one landed.
+
+| # | Finding | Your call | Status |
+|---|---|---|---|
+| 1 | `sync_cross_namespace_policies` rewrites every sibling `values.yaml` | Full rewrite was the safe choice for handling create/update/delete in all directions between standard and devspace namespaces. Improve if possible. **MongoDB is coming** and will need the same standard↔devspace wiring that CNPG has today | **To do.** Two goals: write only when content actually changes, and generalise the block so adding MongoDB is one entry rather than a copy of the CNPG branch |
+| 2 | CSO decommission `rm -rf`s the values.yaml its own guard says it must capture | Every decommission must capture values.yaml. Fix it | **To do** |
+| 3 | EgressIP pool allocation is read-then-write with no lock | Fix if possible | **To do** |
+| 4 | Operators can only be switched on, never off | **Intentional.** Inputs default to false, and GitLab could not tell whether an operator was already enabled on an update — so an unaware operator would silently disable everything they did not re-tick | **Closed, by design.** Recorded in the schema next to the operator fields. Worth revisiting only once the form can read a namespace's current state, which it cannot today |
+| 5 | The update path cannot reach quota, users, Harbor settings, robot accounts | Park it; make the form the single touch point for all basic settings in a final phase | **Parked.** Estimate below |
+| 6 | Decommission keeps only `values.yaml`, discarding `Chart.yaml` | Deliberate — values.yaml records what the namespace was consuming at decommission time, which is the point. Chart version is irrelevant after the fact | **Closed, by design** |
+
+Fixed during the review: the `Chart.yaml` mesh-dependency removal (a line-count
+`sed` that silently reattached a leftover line to the *previous* dependency,
+producing valid YAML with wrong content), and a comment on the
+`.active_sub_tenants` read that nothing writes.
+
+### On #5 — is it "not that much"?
+
+Half of it is. The other half needs a schema feature that does not exist yet, so
+it is worth knowing which half is which before committing to it.
+
+**The easy half — about 50 scalar settings.** Resource quota, limit ranges,
+Harbor storage quota, scanning flags, proxy toggle, the GPU block. Every one of
+these is exactly the recipe in `docs/extending.md`: a block in the schema, a
+`yq e -i` line in the scaffold script. Genuinely straightforward, just
+repetitive.
+
+**The hard half — five settings that are lists of objects:**
+
+| Setting | Shape |
+|---|---|
+| `harborRobotAccounts.robotAccounts` | list of accounts, each with a nested `permissions` list of `{resource, action}` |
+| `allowedFlows.connections` | `{from, to (string *or* list), flows: [{protocol, port}]}` |
+| `networkPolicy.egressip` | `{name, podSelectorLabels, rules: [{cidr, ports: [...]}]}` |
+| `project_users.initialUsers` | variable-length list of addresses |
+| `harborOnboardingConfig.cveAllowlist` | variable-length list of CVE ids |
+
+The schema today has `string`, `boolean`, `integer`, `enum`, `email`, `url` and
+`datetime` — all scalars. It has no way to say "a repeating group". Supporting
+these means a new field type in three places: the schema vocabulary, the shim
+(which currently rejects any payload value containing a newline, and would need
+a nested structure instead), and the form (which would need add/remove row
+controls rather than a single input).
+
+That is a real piece of design work — I would put it at the same size as Phase 1
+was, not at "a few more fields". It is also where the largest win is, because
+robot accounts and allowed flows are exactly the things ops hand-edit during MR
+review today.
+
+**So the answer to "should not be that much" is: the 50 scalars, no. The five
+list settings, yes — and they are the ones that would actually retire the manual
+MR editing.** Worth doing as its own phase with its own design, rather than
+sliding it into a form migration.
