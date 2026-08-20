@@ -53,9 +53,6 @@
 #                "None" that the scaffold script wants when GPU is off, so a
 #                non-emptiness test would let "GPU on, no tier chosen" satisfy
 #                its own requirement with the sentinel for absence.
-#   allow_empty  with `required: true`: the key must be present, but "" is a
-#                legitimate value. Used for cost centre, where empty means
-#                non-billable and must be a deliberate choice, not an omission.
 #   normalise    lower | upper. Replaces the `tr` calls at the top of each
 #                script's validate_inputs.
 #   input_format datetime only. The format the operator supplies, which is not
@@ -65,8 +62,20 @@
 #   deny_prefix  list of prefixes the value may not start with
 #   show_if      map of field: value. All must match or the field is hidden.
 #   required_if  map of field: value. All must match or the field is optional.
-#   source       Phase 2. Where the form gets its picklist, so operators stop
-#                writing tenant and namespace names down by hand.
+#   source       Where the form gets its picklist, so operators stop writing
+#                tenant and namespace names down by hand.
+#
+# OPERATION PROPERTIES
+# --------------------
+#   fields       what the operator may supply, and what the form renders
+#   sets         INPUT_* values derived from the operation rather than supplied.
+#                This is how create-vs-update, DevSpace-vs-standard and
+#                EgressIP-vs-namespace stop being booleans a human can set
+#                inconsistently.
+#   required     extra fields this operation requires. A field can be optional
+#                for one operation and required for another — a namespace name
+#                is optional when creating (a new tenant is named after itself)
+#                and mandatory when updating.
 #
 # Every field is exported with its default on every run, whatever the operation,
 # so no script ever reads an unset INPUT_*. `operations.<op>.fields` controls
@@ -89,14 +98,15 @@ version: 1
 operations:
 
   namespace.create:
-    title: Namespace — create or update
+    title: Namespace — create
     description: >-
-      Creates a namespace, or updates one that already exists. Which of the two
-      happens is decided inside the pipeline from whether the directory is
-      already present; the operator does not choose.
+      Creates a new namespace under a new or existing tenant. Fails if the
+      namespace already exists — use "Namespace — update" for that.
     job: scaffold-namespace
     sets:
+      INPUT_MODE: "create"
       INPUT_CREATE_CSO: "false"
+      INPUT_IS_DEVSPACE: "false"
     fields:
       - request_id
       - requester_email
@@ -108,7 +118,6 @@ operations:
       - cost_center
       - lifecycle
       - ard_link
-      - is_devspace
       - route_exception
       - join_service_mesh
       - create_service_mesh
@@ -120,11 +129,94 @@ operations:
       - cert_manager_operator
       - loki_operator
 
+  namespace.update:
+    title: Namespace — update
+    description: >-
+      Changes an existing namespace. Only the settings below can be changed by
+      the pipeline; everything else in values.yaml is written once at creation
+      and is still an MR edit.
+    job: scaffold-namespace
+    sets:
+      INPUT_MODE: "update"
+      INPUT_CREATE_CSO: "false"
+      INPUT_IS_DEVSPACE: "false"
+    # namespace_name is optional on create (a new tenant is named after itself)
+    # but meaningless without it here.
+    required:
+      - namespace_name
+    # Deliberately short. Every setting here is applied by the scaffold script as
+    # "if true, enable" and never as "if false, disable", so leaving a box
+    # unticked leaves the namespace alone. That is what makes this operation safe
+    # to offer today. Adding a two-way setting — resource quota, project users —
+    # needs the current values read back first, or an unticked box would wipe
+    # something the operator never saw. See pipelineRedesign.md §9.
+    fields:
+      - request_id
+      - requester_email
+      - requested_at
+      - target_cluster
+      - tenant_name
+      - namespace_name
+      - lifecycle
+      - route_exception
+      - join_service_mesh
+      - gpu_enabled
+      - gpu_tier
+      - argocd_operator
+      - gitlab_operator
+      - cloudnativepg_operator
+      - cert_manager_operator
+      - loki_operator
+
+  devspace.create:
+    title: DevSpace — create
+    description: >-
+      Creates a personal DevSpace namespace for the requester. The name is
+      derived from their email address, and the quota, Harbor and proxy settings
+      come from the DevSpace template rather than from this form.
+    job: scaffold-namespace
+    sets:
+      INPUT_MODE: "create"
+      INPUT_CREATE_CSO: "false"
+      INPUT_IS_DEVSPACE: "true"
+    # No namespace name (it is derived), and none of the standard namespace
+    # switches: a DevSpace has no route exceptions, no service mesh, no
+    # operators and no GPU tier.
+    fields:
+      - request_id
+      - requester_email
+      - requested_at
+      - target_cluster
+      - tenant_name
+      - siglum
+      - cost_center
+      - lifecycle
+      - ard_link
+
+  namespace.decommission:
+    title: Namespace — decommission
+    description: >-
+      Retires a namespace, DevSpace included. The values.yaml is archived under
+      .decommissioned_namespaces so the resources it held stay on record.
+    job: decommission
+    sets:
+      INPUT_DECOMMISSION_CSO: "false"
+    required:
+      - namespace_name
+    fields:
+      - request_id
+      - requester_email
+      - requested_at
+      - target_cluster
+      - tenant_name
+      - namespace_name
+
   cso.create:
     title: EgressIP (cluster scope object) — create
     job: scaffold-namespace
     sets:
       INPUT_CREATE_CSO: "true"
+      INPUT_IS_DEVSPACE: "false"
     fields:
       - request_id
       - requester_email
@@ -137,24 +229,13 @@ operations:
       - ard_link
       - egressip_allocation
 
-  namespace.decommission:
-    title: Namespace — decommission
-    job: decommission
-    sets:
-      INPUT_DECOMMISSION_CSO: "false"
-    fields:
-      - request_id
-      - requester_email
-      - requested_at
-      - target_cluster
-      - tenant_name
-      - namespace_name
-
   cso.decommission:
     title: EgressIP (cluster scope object) — decommission
     job: decommission
     sets:
       INPUT_DECOMMISSION_CSO: "true"
+    required:
+      - namespace_name
     fields:
       - request_id
       - requester_email
@@ -319,14 +400,12 @@ fields:
   cost_center:
     group: classification
     label: Cost centre
-    description: >-
-      Billing or WBS code. Leave empty for a non-billable tenant — but it must be
-      left empty deliberately, not omitted.
+    description: Billing or WBS code. Leave empty for a non-billable tenant.
     type: string
     env: INPUT_COST_CENTER
-    required: true
-    allow_empty: true
     normalise: upper
+    # Only checked when a value is given; an empty cost centre is a legitimate
+    # answer meaning non-billable.
     pattern: "^[A-Za-z0-9._/-]+$"
     default: ""
 
@@ -351,16 +430,6 @@ fields:
     absent_value: ""
     show_if: { lifecycle: "prod" }
     required_if: { lifecycle: "prod" }
-
-  is_devspace:
-    group: features
-    label: DevSpace namespace
-    description: >-
-      The namespace is a personal DevSpace. The name is derived from the
-      requester's email; anything typed as the namespace name is ignored.
-    type: boolean
-    env: INPUT_IS_DEVSPACE
-    default: "false"
 
   route_exception:
     group: features

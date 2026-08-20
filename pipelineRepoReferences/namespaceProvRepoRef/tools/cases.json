@@ -46,7 +46,7 @@
       "expect": "accept"
     },
     {
-      "name": "cost centre omitted entirely",
+      "name": "cost centre may be omitted entirely (it is optional)",
       "operation": "namespace.create",
       "payload": {
         "request_id": "REQ0001",
@@ -57,8 +57,10 @@
         "siglum": "TD01",
         "lifecycle": "dev"
       },
-      "expect": "reject",
-      "message": "cost_center"
+      "expect": "accept",
+      "exports": {
+        "INPUT_COST_CENTER": ""
+      }
     },
     {
       "name": "request id missing",
@@ -647,6 +649,186 @@
       "raw_payload": "[1,2,3]",
       "expect": "reject",
       "message": "JSON object"
+    },
+    {
+      "name": "devspace.create minimal",
+      "operation": "devspace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_IS_DEVSPACE": "true",
+        "INPUT_MODE": "create",
+        "INPUT_CREATE_CSO": "false"
+      }
+    },
+    {
+      "name": "devspace.create rejects a namespace name (the name is derived)",
+      "operation": "devspace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev",
+        "namespace_name": "dcsc-anything"
+      },
+      "expect": "reject",
+      "message": "not accepted by operation"
+    },
+    {
+      "name": "devspace.create rejects operator toggles",
+      "operation": "devspace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev",
+        "argocd_operator": "true"
+      },
+      "expect": "reject",
+      "message": "not accepted by operation"
+    },
+    {
+      "name": "namespace.create sets IS_DEVSPACE false and MODE create",
+      "operation": "namespace.create",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "siglum": "TD01",
+        "cost_center": "XX/YY1234-56789",
+        "lifecycle": "dev"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_IS_DEVSPACE": "false",
+        "INPUT_MODE": "create"
+      }
+    },
+    {
+      "name": "namespace.update minimal",
+      "operation": "namespace.update",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "namespace_name": "dcsc-acme-a1b2"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_MODE": "update",
+        "INPUT_IS_DEVSPACE": "false"
+      }
+    },
+    {
+      "name": "namespace.update requires the namespace name",
+      "operation": "namespace.update",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme"
+      },
+      "expect": "reject",
+      "message": "namespace_name"
+    },
+    {
+      "name": "namespace.update does not accept siglum (tenant-level, set at creation)",
+      "operation": "namespace.update",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "namespace_name": "dcsc-acme-a1b2",
+        "siglum": "TD01"
+      },
+      "expect": "reject",
+      "message": "not accepted by operation"
+    },
+    {
+      "name": "namespace.update does not accept create-only mesh deployment",
+      "operation": "namespace.update",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "namespace_name": "dcsc-acme-a1b2",
+        "create_service_mesh": "true"
+      },
+      "expect": "reject",
+      "message": "not accepted by operation"
+    },
+    {
+      "name": "namespace.update can enable an operator",
+      "operation": "namespace.update",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "namespace_name": "dcsc-acme-a1b2",
+        "cloudnativepg_operator": "true"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_CLOUDNATIVEPG_OPERATOR": "true"
+      }
+    },
+    {
+      "name": "namespace.update leaves untouched operators alone (one-way enables)",
+      "operation": "namespace.update",
+      "payload": {
+        "request_id": "REQ0001",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme",
+        "namespace_name": "dcsc-acme-a1b2"
+      },
+      "expect": "accept",
+      "exports": {
+        "INPUT_ARGOCD_OPERATOR": "false",
+        "INPUT_LOKI_OPERATOR": "false"
+      }
+    },
+    {
+      "name": "namespace.decommission requires the namespace name",
+      "operation": "namespace.decommission",
+      "payload": {
+        "request_id": "REQ1",
+        "requester_email": "a.b@zzz.com",
+        "requested_at": "01/04/2026 13:47:48",
+        "target_cluster": "qa-w1",
+        "tenant_name": "acme"
+      },
+      "expect": "reject",
+      "message": "namespace_name"
     }
   ]
 }

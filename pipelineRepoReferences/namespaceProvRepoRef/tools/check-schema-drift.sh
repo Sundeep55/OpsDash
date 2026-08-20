@@ -79,6 +79,15 @@ for f in $ALL_FIELDS; do
     [ "$e" != "null" ] && [ -n "$e" ] || finding "field '$f' has no env"
 done
 
+echo "-> An operation's required list may only name fields it offers"
+for op in $(yq -r '.operations | keys | .[]' "$SCHEMA"); do
+    OP_FIELDS=$(yq -r ".operations.\"$op\".fields[]" "$SCHEMA")
+    for f in $(yq -r ".operations.\"$op\".required // [] | .[]" "$SCHEMA"); do
+        printf '%s\n' "$OP_FIELDS" | grep -qxF "$f" \
+            || finding "operation '$op' requires '$f' but does not offer it"
+    done
+done
+
 echo "-> show_if / required_if may only reference declared fields"
 for f in $ALL_FIELDS; do
     for which in show_if required_if; do

@@ -8,7 +8,7 @@ What each file is, in the order a request passes through them.
 | `load-payload.sh` | sourced second | Turns `OPERATION` + `REQUEST_PAYLOAD` into the `INPUT_*` variables everything else reads |
 | `scaffold-namespace.sh` | run | Creates or updates a namespace, or creates a tenant EgressIP object |
 | `scaffold-mirror.sh` | run | Adds registry replication rules to an existing namespace |
-| `decommission.sh` | run | Retires a namespace or an EgressIP object |
+| `decommission.sh` | run | Retires a namespace (DevSpace included) or an EgressIP object |
 | `validate-mr-permissions.sh` | run | Blocks prod robot accounts with `push`, on merge requests to `main` |
 
 ---
@@ -44,11 +44,45 @@ Sourced rather than executed, so it exports into the calling script's own shell
 
 Covered by `tools/cases.json`, run by `tools/test-cases.sh`. Change it and run that.
 
+### If it says it cannot read the schema
+
+    ERROR: Read ./request-schema.yaml but parsed no fields from it.
+
+The file was found and parsed; the flattening step produced nothing the parser
+could split. It is almost always a `yq` construct this build does not support.
+The error prints the yq version and the first raw line — compare it with what
+the message says it expected.
+
+Check the separator directly in the runner image:
+
+```bash
+yq --version
+LP_SEP=$(printf '\t') yq -r '.fields | to_entries[] | "N" + strenv(LP_SEP) + .key' request-schema.yaml | head -1 | cat -v
+```
+
+It must print `N^Irequest_id`. If the `^I` is missing, that build is not
+emitting the separator.
+
+This happened once already, with `"\t"` written directly in the yq expression:
+older builds do not interpret the escape, exit 0, and emit the line without a
+tab — so every rule read as absent and the shim rejected complete requests as
+"everything is missing". Use constructs the original scaffold scripts already
+prove against the image (`strenv`, `select`, `del`, `//`) in preference to
+anything else.
+
 ## `scaffold-namespace.sh`
 
-Was `scaffold.sh`. Handles `namespace.create` and `cso.create`; the difference
-arrives as `INPUT_CREATE_CSO`, which the operation sets rather than the
-operator.
+Was `scaffold.sh`. Handles four operations — `namespace.create`,
+`namespace.update`, `devspace.create` and `cso.create` — told apart by three
+variables the *operation* sets rather than the operator: `INPUT_MODE`,
+`INPUT_IS_DEVSPACE` and `INPUT_CREATE_CSO`.
+
+`INPUT_MODE` is checked against what is actually on disk. Before the operations
+were split this script inferred the intent, so asking to update a namespace that
+did not exist quietly created it, and a create against an existing name quietly
+modified it. It now refuses both. (`cso.create` deliberately sets no mode: it
+legitimately runs against an existing CSO directory when a tenant gets a second
+EgressIP.)
 
 ```
 prepare_variables → sanity_checks → update_metadata

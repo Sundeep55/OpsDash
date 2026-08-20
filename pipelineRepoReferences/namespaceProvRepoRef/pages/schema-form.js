@@ -102,8 +102,16 @@
     return { values: values, hidden: hidden, supplied: supplied };
   }
 
-  function isRequired(schema, name, state) {
+  /* Three ways a field can be required: the field says so, the operation says
+   * so, or a required_if condition holds. The operation-level list exists
+   * because a field can be optional for one operation and mandatory for
+   * another — a namespace name is optional when creating a tenant and required
+   * when updating one. */
+  function isRequired(schema, name, state, op) {
     if (prop(schema, name, 'required') === 'true') return true;
+    if (op && schema.operations[op] && (schema.operations[op].required || []).indexOf(name) !== -1) {
+      return true;
+    }
     var cond = conditions(schema, name, 'required_if');
     if (!cond) return false;
     return Object.keys(cond).every(function (k) {
@@ -149,18 +157,12 @@
     return m[3] + '-' + m[2] + '-' + m[1] + 'T' + m[4] + ':' + m[5] + ':' + m[6];
   }
 
-  function validateField(schema, name, state) {
+  function validateField(schema, name, state, op) {
     var value = state.values[name];
-    var required = isRequired(schema, name, state);
-    var allowEmpty = prop(schema, name, 'allow_empty') === 'true';
 
-    if (required) {
-      if (!state.supplied[name]) {
-        return allowEmpty
-          ? 'must be supplied — send an empty value if that is intentional'
-          : 'is required';
-      }
-      if (!allowEmpty && value === '') return 'is required and must not be empty';
+    if (isRequired(schema, name, state, op)) {
+      if (!state.supplied[name]) return 'is required';
+      if (value === '') return 'is required and must not be empty';
     }
     if (value === '' || value === undefined || value === null) return null;
 
@@ -245,7 +247,7 @@
     var state = resolve(schema, op, input);
     fields.forEach(function (name) {
       if (state.hidden[name]) return;
-      var e = validateField(schema, name, state);
+      var e = validateField(schema, name, state, op);
       if (e) errors[name] = e;
     });
     return { errors: errors, state: state, ok: Object.keys(errors).length === 0 };
@@ -266,9 +268,10 @@
     operationFields(schema, op).forEach(function (name) {
       if (state.hidden[name]) return;
       var value = state.values[name];
-      var mustSend = isRequired(schema, name, state) &&
-                     prop(schema, name, 'allow_empty') === 'true';
-      if (value === '' && !mustSend) return;
+      // An empty value is omitted so the schema default applies -- sending
+      // lifecycle:"" would override "dev" with nothing and hand the script an
+      // empty INPUT_LIFECYCLE.
+      if (value === '') return;
       payload[name] = value;
     });
     return payload;

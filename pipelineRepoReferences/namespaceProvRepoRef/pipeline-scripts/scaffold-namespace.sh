@@ -177,6 +177,33 @@ function sanity_checks() {
     echo "==========================================================================="
     log_info "Running Sanity Checks..."
 
+    # Does the request match what is actually on disk?
+    #
+    # INPUT_MODE says what the operator asked for; IS_EXISTING_PROJECT says what
+    # is there. Before the operations were split, this script inferred the
+    # intent, so asking to update a namespace that did not exist quietly created
+    # it, and a create against an existing name quietly modified it. Neither is
+    # something anyone wants to discover in a merge request.
+    #
+    # Not set for cso.create, which legitimately runs against an existing CSO
+    # directory when adding a second EgressIP to a tenant.
+    if [ -n "${INPUT_MODE:-}" ]; then
+        if [ "$INPUT_MODE" = "update" ] && [ "$IS_EXISTING_PROJECT" != "true" ]; then
+            echo "==========================================================================="
+            log_error "Update requested, but '$PROJECT_DIR' does not exist."
+            log_error "Check the namespace name, or use the create operation instead."
+            echo "==========================================================================="
+            exit 1
+        fi
+        if [ "$INPUT_MODE" = "create" ] && [ "$IS_EXISTING_PROJECT" = "true" ]; then
+            echo "==========================================================================="
+            log_error "Create requested, but '$PROJECT_DIR' already exists."
+            log_error "Use the update operation to change it."
+            echo "==========================================================================="
+            exit 1
+        fi
+    fi
+
     # Check Branch
     if git ls-remote --exit-code --heads "https://${CI_SERVER_HOST}:${GITLAB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" "$NEW_BRANCH_NAME" > /dev/null 2>&1; then
         log_error "Branch '$NEW_BRANCH_NAME' already exists."

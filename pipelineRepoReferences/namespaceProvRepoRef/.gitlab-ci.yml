@@ -24,8 +24,10 @@ spec:
       description: "Which operation to run."
       options:
         - "namespace.create"
-        - "cso.create"
+        - "namespace.update"
         - "namespace.decommission"
+        - "devspace.create"
+        - "cso.create"
         - "cso.decommission"
         - "mirror.create"
       default: "namespace.create"
@@ -108,7 +110,7 @@ scaffold-namespace:
     - chmod +x ./pipeline-scripts/*.sh
     - ./pipeline-scripts/scaffold-namespace.sh
   rules:
-    - if: '$OPERATION != "namespace.create" && $OPERATION != "cso.create"'
+    - if: '$OPERATION != "namespace.create" && $OPERATION != "namespace.update" && $OPERATION != "devspace.create" && $OPERATION != "cso.create"'
       when: never
     - if: '$CI_PIPELINE_SOURCE == "web"'
     - if: '$CI_PIPELINE_SOURCE == "trigger"'

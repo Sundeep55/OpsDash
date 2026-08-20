@@ -843,7 +843,7 @@ Your answers, and where each one landed.
 | 1 | `sync_cross_namespace_policies` rewrites every sibling `values.yaml` | Full rewrite was the safe choice for handling create/update/delete in all directions between standard and devspace namespaces. Improve if possible. **MongoDB is coming** and will need the same standard↔devspace wiring that CNPG has today | **To do.** Two goals: write only when content actually changes, and generalise the block so adding MongoDB is one entry rather than a copy of the CNPG branch |
 | 2 | CSO decommission `rm -rf`s the values.yaml its own guard says it must capture | Every decommission must capture values.yaml. Fix it | **To do** |
 | 3 | EgressIP pool allocation is read-then-write with no lock | Fix if possible | **To do** |
-| 4 | Operators can only be switched on, never off | **Intentional.** Inputs default to false, and GitLab could not tell whether an operator was already enabled on an update — so an unaware operator would silently disable everything they did not re-tick | **Closed, by design.** Recorded in the schema next to the operator fields. Worth revisiting only once the form can read a namespace's current state, which it cannot today |
+| 4 | Operators can only be switched on, never off | **Intentional.** Inputs default to false, and GitLab could not tell whether an operator was already enabled on an update — so an unaware operator would silently disable everything they did not re-tick | **Closed, by design**, and the rationale is now recorded in the schema beside the operator fields. It is also what makes `namespace.update` safe to ship: every setting that operation offers is a one-way enable, so an unticked box means "leave alone" by construction rather than by convention. Revisit only when the form can read a namespace's current state |
 | 5 | The update path cannot reach quota, users, Harbor settings, robot accounts | Park it; make the form the single touch point for all basic settings in a final phase | **Parked.** Estimate below |
 | 6 | Decommission keeps only `values.yaml`, discarding `Chart.yaml` | Deliberate — values.yaml records what the namespace was consuming at decommission time, which is the point. Chart version is irrelevant after the fact | **Closed, by design** |
 
@@ -889,3 +889,79 @@ review today.
 list settings, yes — and they are the ones that would actually retire the manual
 MR editing.** Worth doing as its own phase with its own design, rather than
 sliding it into a form migration.
+
+---
+
+## 9. Backlog — `namespace.update` and prefilled forms
+
+Not scheduled. Recorded because it is the thing that unlocks #4, and because the
+hard parts are not where they first appear.
+
+### The idea
+
+A `namespace.update` operation where tenant and namespace are dropdowns rather
+than free text, and every other field arrives **pre-filled with the namespace's
+current values**. Disabling an operator then becomes possible and safe, because
+the operator can see what is currently on. That is exactly the objection that
+made operators one-way (#4): a request carries no knowledge of current state, so
+an unticked box is indistinguishable from "leave it alone".
+
+### The part you already spotted
+
+> each input form must be able to get data from a particular field in the values
+> file and seems it is not that straightforward as we have multiple values.yaml
+> file samples
+
+Right. Today `env:` says where a value *goes*. This needs the mirror image —
+where it *comes from* — and there is no single answer, because the five
+operations read different files and different top-level blocks:
+
+| Operation | File | Block |
+|---|---|---|
+| namespace | `<cluster>/<tenant>/<ns>/values.yaml` | `dcs-namespace-provisioner` |
+| cso | `<cluster>/<tenant>/dcsc-cso-<tenant>/values.yaml` | `dcs-egress` |
+| service mesh | `<cluster>/<tenant>/dcsc-<tenant>-service-mesh/values.yaml` | `dcs-service-mesh` |
+| mirror | `<ns>/values-registry-mirror.yaml` | `dcs-registry-config` |
+
+Workable shape: the **operation** declares the file it reads, and each **field**
+declares a path within it.
+
+```yaml
+operations:
+  namespace.update:
+    reads: "{target_cluster}/{tenant_name}/{namespace_name}/values.yaml"
+fields:
+  gpu_enabled:
+    env:   INPUT_GPU_ENABLED
+    reads: dcs-namespace-provisioner.gpuConfig.enabled
+```
+
+That keeps one declaration per field and stays honest about the differing
+shapes.
+
+### The two harder problems, which are not about paths
+
+**1. "Not supplied" has to change meaning.** Today an absent field takes its
+default. For an update that is catastrophic: omitting `resource_quota_cpu` would
+reset it rather than leave it. An update operation needs *absent means leave
+unchanged*, which is a third state the shim does not have — it currently knows
+"supplied" and "defaulted". Both the shim and every scaffold script would need
+to distinguish them.
+
+**2. Prefilling from a stale index can silently revert someone else's change.**
+The form would prefill from data as of the last merge. If two requests overlap,
+the second submits stale values for fields it never touched and undoes the
+first. That is worse than not prefilling at all, because it looks deliberate in
+the diff.
+
+The fix is not fresher data — it is that the request should carry only what
+changed, plus the revision it was based on, and the scaffold script should
+refuse if the file has moved since. Optimistic concurrency, in other words. This
+also happens to solve the EgressIP pool race (§8 #3) if applied there.
+
+### Size
+
+Bigger than it looks, and the two problems above are the reason — not the path
+mapping. Realistically its own phase, alongside or after the list-of-objects
+work in §8 #5, since both are about the form owning `values.yaml` rather than
+just triggering a pipeline.

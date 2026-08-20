@@ -119,8 +119,10 @@
    * namespace. scaffold-namespace.sh refuses the request otherwise, and without
    * the index the operator only finds out from a failed pipeline. */
   function existingTenantNeedsNamespace(state) {
-    if (SchemaForm.operationFields(SCHEMA, operation).indexOf('namespace_name') === -1) return false;
-    if (operation.indexOf('decommission') !== -1) return false;
+    // Only namespace.create. Update and decommission declare namespace_name as
+    // required in the schema, so the engine already covers them; DevSpace does
+    // not offer the field at all.
+    if (operation !== 'namespace.create') return false;
     var t = state.values.tenant_name;
     if (!t) return false;
     return !!tenantRecord(state.values.target_cluster, t) && !state.values.namespace_name;
@@ -192,7 +194,7 @@
     var wrap = document.createElement('div');
     wrap.className = 'field' + (f.type === 'boolean' ? ' bool' : '');
 
-    var required = SchemaForm.isRequired(SCHEMA, name, state);
+    var required = SchemaForm.isRequired(SCHEMA, name, state, operation);
     var value = state.values[name];
     var control;
 
@@ -242,6 +244,19 @@
         wrap.appendChild(dl);
       }
       control.addEventListener('input', function () { input[name] = control.value; render(); });
+
+      // Case folding happens on blur, not per keystroke. Rewriting the value
+      // under the cursor as someone types is jarring and fights the caret; but
+      // leaving the box showing "acXYme" while the pipeline receives "acxyme"
+      // means the operator has to cross-check the payload preview to know what
+      // they actually sent. `change` fires on blur, and only if the value moved.
+      control.addEventListener('change', function () {
+        var rule = SCHEMA.fields[name].normalise;
+        if (rule === 'lower')      input[name] = control.value.toLowerCase();
+        else if (rule === 'upper') input[name] = control.value.toUpperCase();
+        else return;
+        render();
+      });
     }
 
     control.dataset.field = name;

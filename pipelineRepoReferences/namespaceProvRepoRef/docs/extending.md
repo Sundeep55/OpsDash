@@ -107,10 +107,23 @@ no change to either.
 | `options` | `enum` only. Enforced — this is what replaced GitLab's server-side `options:`. |
 | `default` | Used when the operator did not supply the field. |
 | `required` | The operator must *supply* it. A required field ignores its own `default`. |
-| `allow_empty` | With `required`: the key must be present but `""` is a real answer. |
 | `normalise` | `lower` or `upper`. Do not do this in the script. |
 | `pattern` | POSIX ERE, checked when the value is non-empty. |
 | `deny_prefix` | List of prefixes the value may not start with. |
+
+Operations carry three keys of their own:
+
+| Property | Notes |
+|---|---|
+| `fields` | What the operator may supply, and what the form renders. |
+| `sets` | `INPUT_*` values derived from the operation rather than supplied. |
+| `required` | Extra fields *this* operation requires. |
+
+`sets` is how create-vs-update, DevSpace-vs-standard and EgressIP-vs-namespace
+stopped being booleans a human could set inconsistently. `required` is how one
+field can be optional for one operation and mandatory for another — a namespace
+name is optional when creating (a new tenant is named after itself) and required
+when updating.
 
 **On `required` vs `default`:** they do not combine. `required` means presence
 in the payload, so a required field never falls back to its default — a
@@ -243,9 +256,24 @@ second spelling of "requester".
 
 ### Add it to the enum
 
-In `.gitlab-ci.yml`, under `spec.inputs.OPERATION.options`. GitLab enforces this
-list server-side, so it is the one piece of validation that still happens before
-any script runs.
+In `.gitlab-ci.yml`, under `spec.inputs.OPERATION.options`, **and** to the
+`rules:` of the job that should run it. GitLab enforces the option list
+server-side, so it is the one piece of validation that still happens before any
+script runs.
+
+### Decide whether it deserves to be an operation at all
+
+An operation earns its place when the **fields differ** or the **script path
+differs**. Otherwise it is a second name for one thing.
+
+- `devspace.create` — yes: a DevSpace has no namespace name (it is derived from
+  the requester's email), no operators, no mesh, no GPU tier, no route
+  exception. Eight fields against eighteen.
+- `namespace.update` — yes: a much shorter field list, and it must refuse to run
+  against a namespace that does not exist.
+- `devspace.decommission` — **no**: identical fields and identical script path to
+  `namespace.decommission`. Filtering the namespace picklist is a form concern,
+  not a new operation.
 
 ### Add the job
 
