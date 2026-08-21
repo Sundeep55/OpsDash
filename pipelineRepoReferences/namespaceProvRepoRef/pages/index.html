@@ -37,7 +37,8 @@
     <div id="problems" class="problems" hidden></div>
 
     <details class="payload">
-      <summary>Request payload <span class="hint">— this is exactly what the pipeline receives</span></summary>
+      <summary>Request payload <span class="hint">— this is exactly what the pipeline receives</span>
+        <span id="payload-size" class="hint"></span></summary>
       <pre id="payload"></pre>
     </details>
 
@@ -56,13 +57,16 @@
 
     <details class="settings">
       <summary>Trigger settings</summary>
+      <p id="cfg-target" class="hint" hidden></p>
       <div class="grid">
-        <label>GitLab URL<input type="text" id="cfg-host" placeholder="https://gitlab.example.com"></label>
-        <label>Project ID or path<input type="text" id="cfg-project" placeholder="dcs/dcs-customer-instances"></label>
-        <label>Branch<input type="text" id="cfg-ref" value="main"></label>
         <label>Personal access token
           <input type="password" id="cfg-token" placeholder="glpat-…">
         </label>
+      </div>
+      <div id="cfg-manual" class="grid" hidden>
+        <label>GitLab URL<input type="text" id="cfg-host" placeholder="https://gitlab.example.com"></label>
+        <label>Project ID or path<input type="text" id="cfg-project" placeholder="dcs/dcs-customer-instances"></label>
+        <label>Branch<input type="text" id="cfg-ref" value="main"></label>
       </div>
       <p class="hint">
         Held in this browser's local storage only, never sent anywhere except to your

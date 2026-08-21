@@ -12,7 +12,7 @@
 (function () {
   'use strict';
 
-  var SCHEMA = null, INDEX = null;
+  var SCHEMA = null, INDEX = null, CONFIG = {};
   var operation = null;
   var input = {};                                   // what the operator has typed
   var CFG_KEY = 'onboarding-form-config';
@@ -23,10 +23,12 @@
 
   Promise.all([
     fetch('schema.json').then(function (r) { return r.json(); }),
-    fetch('index.json').then(function (r) { return r.json(); }).catch(function () { return null; })
+    fetch('index.json').then(function (r) { return r.json(); }).catch(function () { return null; }),
+    fetch('config.json').then(function (r) { return r.json(); }).catch(function () { return {}; })
   ]).then(function (res) {
     SCHEMA = res[0];
     INDEX = res[1] || { clusters: {} };
+    CONFIG = res[2] || {};
     renderOperations();
     renderFreshness();
     loadConfig();
@@ -300,7 +302,16 @@
 
   function renderSubmit(state) {
     var payload = SchemaForm.buildPayload(SCHEMA, operation, input);
+    var compact = JSON.stringify(payload);
     $('payload').textContent = JSON.stringify(payload, null, 2);
+
+    // The payload travels as a single CI input value, so its size is worth
+    // showing rather than leaving anyone to wonder. Every fixed-size request is
+    // under 800 bytes; only a registry mirror grows, because the image list is
+    // comma-separated and unbounded.
+    var bytes = compact.length;
+    $('payload-size').textContent = bytes + ' bytes';
+    $('payload-size').className = bytes > 8000 ? 'hint bad' : 'hint';
 
     var probs = problems(state);
     var box = $('problems');
@@ -340,19 +351,45 @@
 
   // --- trigger --------------------------------------------------------------
 
+  /* Where to send the request comes from config.json, which the pages job wrote
+   * from GitLab's own predefined variables. The operator is never asked for it.
+   * Only the token is theirs, and only because a published static file is not a
+   * place to keep one. */
   function config() {
-    try { return JSON.parse(localStorage.getItem(CFG_KEY) || '{}'); } catch (e) { return {}; }
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem(CFG_KEY) || '{}'); } catch (e) { /* ignore */ }
+    return {
+      host:    CONFIG.gitlab_url || saved.host || '',
+      project: CONFIG.project_id || CONFIG.project_path || saved.project || '',
+      ref:     CONFIG.ref || saved.ref || 'main',
+      token:   saved.token || ''
+    };
   }
 
   function loadConfig() {
     var c = config();
+    var baked = !!(CONFIG.gitlab_url && (CONFIG.project_id || CONFIG.project_path));
+
+    $('cfg-token').value = c.token || '';
     $('cfg-host').value = c.host || '';
     $('cfg-project').value = c.project || '';
     $('cfg-ref').value = c.ref || 'main';
-    $('cfg-token').value = c.token || '';
+
+    // When the build supplied them, show them as read-only facts rather than
+    // as questions. They are only editable at all so the form still works when
+    // opened from a local directory during development.
+    $('cfg-target').hidden = !baked;
+    $('cfg-manual').hidden = baked;
+    if (baked) {
+      // The path reads better than the numeric id; the id is what the API call
+      // uses, since it needs no encoding.
+      $('cfg-target').textContent =
+        'Requests go to ' + (CONFIG.project_path || c.project) + ' on ' + c.host + ', branch ' + c.ref + '.';
+    }
   }
 
   $('cfg-save').addEventListener('click', function () {
+    // Only ever the token and any manual overrides; config.json wins when present.
     localStorage.setItem(CFG_KEY, JSON.stringify({
       host: $('cfg-host').value.trim().replace(/\/+$/, ''),
       project: $('cfg-project').value.trim(),
@@ -372,8 +409,12 @@
 
   $('trigger').addEventListener('click', function () {
     var c = config();
-    if (!c.host || !c.project || !c.token) {
-      say('Fill in the trigger settings below first, or use Copy instead.', 'bad');
+    if (!c.host || !c.project) {
+      say('This site was not built by the pipeline, so it does not know which GitLab to talk to. Fill in the settings below, or use Copy.', 'bad');
+      return;
+    }
+    if (!c.token) {
+      say('Add your personal access token under Trigger settings, or use Copy instead — Copy needs nothing.', 'bad');
       return;
     }
     var url = c.host + '/api/v4/projects/' + encodeURIComponent(c.project) + '/pipeline';

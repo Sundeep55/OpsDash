@@ -169,4 +169,13 @@ pages:
     paths:
       - public
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    # Only an actual merge. A form-triggered request also runs on main, so
+    # `$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` alone fired the deploy on every
+    # namespace request — republishing an index that had not changed and leaving
+    # a misleading deployment trail. A merge arrives as a `push`; web, trigger
+    # and api pipelines do not.
+    #
+    # The inventory only moves when a branch is merged, so that is the only
+    # thing that should rebuild it. To republish after a failed deploy, re-run
+    # that job from the pipeline — job re-runs ignore `rules`.
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

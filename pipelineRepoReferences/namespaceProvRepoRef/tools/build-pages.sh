@@ -122,7 +122,30 @@ COMMIT="${CI_COMMIT_SHORT_SHA:-$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/nu
 yq -p json -o json -e '.' "$OUT/index.json" >/dev/null 2>&1 || { echo "ERROR: generated index.json is not valid JSON"; exit 1; }
 echo "-> index.json ($(yq -p json -o json -r '[.clusters[] | keys | .[]] | length' "$OUT/index.json") tenants across $(yq -p json -o json -r '.clusters | keys | length' "$OUT/index.json") cluster(s))"
 
-# --- 3. the static files ---------------------------------------------------
+# --- 3. where to send requests ---------------------------------------------
+# GitLab tells the job all of this for free, so the operator should never be
+# asked for any of it. None of these are secrets: the server URL and project id
+# are visible to anyone who can reach the project at all.
+#
+# Deliberately NOT written here: a token. This file is published as a static
+# asset, so anything in it is readable by everyone who can load the site. See
+# pages/README.md for the ways to authenticate that do not require that.
+cat > "$OUT/config.json" <<JSON
+{
+  "gitlab_url": "${CI_SERVER_URL:-}",
+  "project_id": "${CI_PROJECT_ID:-}",
+  "project_path": "${CI_PROJECT_PATH:-}",
+  "ref": "${CI_DEFAULT_BRANCH:-main}"
+}
+JSON
+yq -p json -o json -e '.' "$OUT/config.json" >/dev/null 2>&1 || { echo "ERROR: generated config.json is not valid JSON"; exit 1; }
+if [ -n "${CI_PROJECT_ID:-}" ]; then
+    echo "-> config.json (project ${CI_PROJECT_PATH} #${CI_PROJECT_ID} on ${CI_SERVER_URL}, ref ${CI_DEFAULT_BRANCH:-main})"
+else
+    echo "-> config.json (empty -- not running in CI, the form will ask for these)"
+fi
+
+# --- 4. the static files ---------------------------------------------------
 cp "${PAGES_DIR}/"* "$OUT/"
 echo "-> copied $(ls -1 "${PAGES_DIR}" | wc -l | tr -d ' ') files from pages/"
 
