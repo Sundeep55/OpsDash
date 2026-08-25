@@ -1,0 +1,272 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: abc-hcp-admin-role
+  labels:
+    app: cluster-config
+rules:
+  {{- if .Values.virtualCluster.dcscHcpAdminRoleAdditionalRules}}
+  {{- toYaml .Values.virtualCluster.dcscHcpAdminRoleAdditionalRules | nindent 2}}
+  {{- end }}
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - secrets
+      - endpoints # Check this
+      - persistentvolumeclaims
+      - persistentvolumeclaims/status
+      - pods
+      - pods/attach
+      - pods/exec
+      - pods/portforward
+      - pods/proxy
+      - pods/eviction
+      - pods/status
+      - pods/log
+      - replicationcontrollers
+      - replicationcontrollers/scale
+      - replicationcontrollers/status
+      - serviceaccounts
+      - serviceaccounts/token
+      - services
+      - services/status
+      - services/proxy
+      - namespaces
+      - namespaces/status
+      - resourcequotausages
+      - resourcequotas
+      - resourcequotas/status
+      - limitranges
+      - events
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [""]
+    resources:
+      - persistentvolumes
+      - persistentvolumes/status
+      - endpoints
+      - bindings
+    verbs: [get, list, watch]
+
+  - apiGroups: [apps, extensions]
+    resources:
+      - deployments
+      - deployments/rollback
+      - deployments/scale
+      - deployments/status
+      - controllerrevisions
+      - daemonsets
+      - daemonsets/status
+      - replicasets
+      - replicasets/scale
+      - replicasets/status
+      - statefulsets
+      - statefulsets/scale
+      - statefulsets/status
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [batch]
+    resources: [cronjobs, cronjobs/status, jobs, jobs/status]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [apps.openshift.io]
+    resources:
+      - deploymentconfigs
+      - deploymentconfigs/scale
+      - deploymentconfigs/log
+      - deploymentconfigs/status
+      - deploymentconfigrollbacks
+      - deploymentconfigs/instantiate
+      - deploymentconfigs/rollback
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  # OpenShift Builds & Image Streams
+  - apiGroups: [build.openshift.io]
+    resources:
+      - buildlogs
+      - buildconfigs
+      - buildconfigs/webhooks
+      - buildconfigs/instantiate
+      - buildconfigs/instantiatebinary
+      - builds
+      - builds/details
+      - builds/clone
+      - builds/log
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [image.openshift.io]
+    resources:
+      - imagesignatures
+      - imagestreamimages
+      - imagestreammappings
+      - imagestreams
+      - imagestreams/secrets
+      - imagestreams/layers
+      - imagestreams/status
+      - imagestreamtags
+      - imagetags
+      - imagestreamimports
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [image.openshift.io]
+    resources: [images]
+    verbs: [get, list, watch] # Images object itself is global
+
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, ingresses/status, ingressclasses]
+    {{- if eq (lower .Values.virtualCluster.type) "development" }}
+    verbs: [get, list, watch]
+    {{- else }}
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+    {{- end }}
+
+  - apiGroups: [route.openshift.io]
+    resources:
+      - routes
+      - routes/custom-host
+      - routes/status
+    {{- if eq (lower .Values.virtualCluster.type) "development" }}
+    verbs: [get, list, watch]
+    {{- else }}
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+    {{- end }}
+
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [authorization.openshift.io]   # Check scope of this
+    resources: [roles, rolebindings, rolebindingrestrictions]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [authorization.openshift.io, authorization.k8s.io]  # Check scope of this
+    resources:
+      - resourceaccessreviews
+      - subjectaccessreviews
+      - localresourceaccessreviews
+      - localsubjectaccessreviews
+      - subjectrulesreviews
+    verbs: [create]
+
+  - apiGroups: [user.openshift.io]
+    resources: [groups, users, identities, useridentitymappings]
+    verbs: [get, list, watch] # Read-only access to user/group directory
+
+  - apiGroups: [project.openshift.io]
+    resources: [projects, projectrequests]
+    verbs: [get, list, watch, create, update, patch, delete]
+
+  - apiGroups: [monitoring.coreos.com, monitoring.openshift.io]
+    resources:
+      - alertmanagerconfigs
+      - podmonitors
+      - probes
+      - prometheusrules
+      - servicemonitors
+      - alertingrules
+      - alertrelabelconfigs
+      - alertmanagers
+      - prometheuses
+      - thanosrulers
+    verbs: [get, list, watch]
+
+  - apiGroups:
+      - "operator.openshift.io"
+      - "console.openshift.io"
+      - "oauth.openshift.io"
+      - "apiregistration.k8s.io"
+    resources: ["*"]
+    verbs: [get, list, watch]
+
+  - apiGroups: [quota.openshift.io]
+    resources:
+      - clusterresourcequotas
+      - clusterresourcequotas/status
+      - appliedclusterresourcequotas
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [security.openshift.io]
+    resources:
+      - securitycontextconstraints
+      - podsecuritypolicyreviews
+      - podsecuritypolicyselfsubjectreviews
+      - podsecuritypolicysubjectreviews
+    verbs: [get, list, watch, create, update, patch, delete, use]
+
+  - apiGroups: [imageregistry.operator.openshift.io]
+    resources:
+      - configs
+      - imagepruners
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [helm.openshift.io]
+    resources:
+      - helmchartrepositories
+      - projecthelmchartrepositories
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [samples.operator.openshift.io]
+    resources: [configs]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [config.openshift.io]
+    resources:
+      - clusteroperators
+      - clusterversions
+      - featuregates
+      - infrastructures
+      - proxies
+      - consoles
+      - dnses
+      - networks
+      - apiservers
+    verbs: [get, list, watch]
+
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers, horizontalpodautoscalers/status]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets, poddisruptionbudgets/status]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [coordination.k8s.io, metrics.k8s.io, discovery.k8s.io]
+    resources: ["*"]
+    verbs: [get, list, watch]
+
+  # Need to restrict or add kyverno policies to restrict the access to CRDS installed by DCS
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions, customresourcedefinitions/status]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [operators.coreos.com]
+    resources: [
+      clusterserviceversions,
+      catalogsources,
+      installplans,
+      subscriptions,
+      operatorgroups
+    ]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [packages.operators.coreos.com]
+    resources: [packagemanifests, packagemanifests/icon]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+# OpenShift Templates (Full Access)
+  - apiGroups: [template.openshift.io]
+    resources:
+      - templates
+      - templateconfigs
+      - templateinstances
+      - processedtemplates
+      - brokertemplateinstances
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
