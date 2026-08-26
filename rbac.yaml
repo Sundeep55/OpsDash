@@ -1,18 +1,223 @@
+# ---------------------------------------------------------------------------
+# abc-hcp-cluster-role
+#
+# CLUSTER-SCOPED grants only. Bound to the tenant group with a
+# ClusterRoleBinding. Nothing namespaced belongs in here -- namespaced
+# resources are granted per-namespace by the Kyverno generate rule in
+# 03-kyverno-guardrails.yaml, which is what keeps tenants out of abc-*.
+#
+# Deliberately absent (do not re-add without reading the notes):
+#   escalate, bind          -> would defeat RBAC escalation prevention
+#   admissionregistration   -> would let tenants delete the Kyverno webhooks
+#   secrets                 -> namespaced role only
+#   serviceaccounts/token   -> namespaced role only
+#   pods/exec|attach|portforward|proxy -> namespaced role only
+#   SCC create/update/delete -> privileged SCC == node root == every secret
+# ---------------------------------------------------------------------------
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: abc-hcp-admin-role
+  name: abc-hcp-cluster-role
   labels:
     app: cluster-config
 rules:
-  {{- if .Values.virtualCluster.dcscHcpAdminRoleAdditionalRules}}
-  {{- toYaml .Values.virtualCluster.dcscHcpAdminRoleAdditionalRules | nindent 2}}
+  {{- if .Values.virtualCluster.dcscHcpAdminRoleAdditionalRules }}
+  # Per-cluster exceptions live here. This is the case-by-case escalation
+  # path: a tenant that genuinely needs privileged SCC or extra cluster-scoped
+  # CRDs gets it added to their values file, reviewed, and version controlled.
+  {{- toYaml .Values.virtualCluster.dcscHcpAdminRoleAdditionalRules | nindent 2 }}
   {{- end }}
+
+  # --- Namespace lifecycle -------------------------------------------------
+  # create is what makes this self-service. delete is guarded by Kyverno for
+  # abc-*, openshift-*, kube-* (RBAC alone cannot express that exclusion).
+  - apiGroups: [""]
+    resources: [namespaces, namespaces/status]
+    verbs: [get, list, watch, create, delete]
+
+  - apiGroups: [project.openshift.io]
+    resources: [projects, projectrequests]
+    verbs: [get, list, watch, create, delete]
+
+  # --- Cluster infrastructure: read-only -----------------------------------
+  # Added deliberately: without nodes and storageclasses the console dashboard
+  # and any PVC workflow is broken for the tenant.
+  - apiGroups: [""]
+    resources: [nodes, nodes/status, persistentvolumes, persistentvolumes/status, endpoints, bindings]
+    verbs: [get, list, watch]
+
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses, csidrivers, csinodes, volumeattachments]
+    verbs: [get, list, watch]
+
+  - apiGroups: [metrics.k8s.io]
+    resources: [nodes, pods]
+    verbs: [get, list, watch]
+
+  - apiGroups: [config.openshift.io]
+    resources:
+      - clusteroperators
+      - clusterversions
+      - featuregates
+      - infrastructures
+      - proxies
+      - consoles
+      - dnses
+      - networks
+      - apiservers
+      - ingresses
+      - schedulers
+    verbs: [get, list, watch]
+
+  - apiGroups:
+      - operator.openshift.io
+      - console.openshift.io
+      - oauth.openshift.io
+      - apiregistration.k8s.io
+      - coordination.k8s.io
+      - discovery.k8s.io
+    resources: ["*"]
+    verbs: [get, list, watch]
+
+  - apiGroups: [image.openshift.io]
+    resources: [images, imagesignatures]
+    verbs: [get, list, watch]
+
+  - apiGroups: [networking.k8s.io]
+    resources: [ingressclasses]
+    verbs: [get, list, watch]
+
+  # --- Identity: read-only -------------------------------------------------
+  # Needed so tenants can resolve group members when writing their own
+  # RoleBindings. Write access is not required and is not granted.
+  - apiGroups: [user.openshift.io]
+    resources: [groups, users, identities, useridentitymappings]
+    verbs: [get, list, watch]
+
+  # --- Access review (self-service "can I do X?") --------------------------
+  - apiGroups: [authorization.openshift.io, authorization.k8s.io]
+    resources:
+      - resourceaccessreviews
+      - subjectaccessreviews
+      - localresourceaccessreviews
+      - localsubjectaccessreviews
+      - subjectrulesreviews
+      - selfsubjectaccessreviews
+      - selfsubjectrulesreviews
+    verbs: [create]
+
+  # --- Cluster-scoped RBAC -------------------------------------------------
+  # Safe WITHOUT escalate/bind: tenants can only create ClusterRoles whose
+  # rules are a subset of what they already hold, and can only bind those.
+  # The one hole is aggregation labels, which escalation prevention does not
+  # inspect -- closed by the Kyverno policy in 03-kyverno-guardrails.yaml.
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  # --- SCC: use only, pinned -----------------------------------------------
+  # `use` without resourceNames means any SCC on the cluster, including
+  # privileged. `create` means authoring one. Either is node root, which is
+  # the global pull secret and every mounted secret on the box.
+  # Extra SCCs for a specific tenant go through dcscHcpAdminRoleAdditionalRules.
+  - apiGroups: [security.openshift.io]
+    resources: [securitycontextconstraints]
+    resourceNames: [restricted-v2, nonroot-v2, anyuid]
+    verbs: [use]
+
+  - apiGroups: [security.openshift.io]
+    resources: [securitycontextconstraints]
+    verbs: [get, list, watch]
+
+  - apiGroups: [security.openshift.io]
+    resources:
+      - podsecuritypolicyreviews
+      - podsecuritypolicyselfsubjectreviews
+      - podsecuritypolicysubjectreviews
+    verbs: [create]
+
+  # --- CRDs ----------------------------------------------------------------
+  # Full write is required for self-service operator installs. The blast
+  # radius (deleting the Kyverno CRDs and garbage-collecting every policy)
+  # is closed by the protected-CRD Kyverno rule, not by RBAC.
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions, customresourcedefinitions/status]
+    verbs: [get, list, watch, create, update, patch, delete]
+
+  # --- OLM: cluster-scoped pieces only -------------------------------------
+  # packagemanifests is a virtual aggregated API and must be cluster-read.
+  # Subscriptions / CatalogSources / OperatorGroups / CSVs / InstallPlans are
+  # all NAMESPACED and live in the namespaced role.
+  - apiGroups: [packages.operators.coreos.com]
+    resources: [packagemanifests, packagemanifests/icon]
+    verbs: [get, list, watch]
+
+  - apiGroups: [operators.coreos.com]
+    resources: [operators, operatorconditions]
+    verbs: [get, list, watch]
+
+  # --- Cluster-scoped OpenShift config the tenant genuinely owns -----------
+  - apiGroups: [helm.openshift.io]
+    resources: [helmchartrepositories]
+    verbs: [get, list, watch, create, update, patch, delete]
+
+  - apiGroups: [samples.operator.openshift.io]
+    resources: [configs]
+    verbs: [get, list, watch, update, patch]
+
+  - apiGroups: [imageregistry.operator.openshift.io]
+    resources: [configs, imagepruners]
+    verbs: [get, list, watch, update, patch]
+
+  - apiGroups: [template.openshift.io]
+    resources: [brokertemplateinstances]
+    verbs: [get, list, watch]
+
+  # --- Quota: READ ONLY ----------------------------------------------------
+  # Write here would let a tenant delete the quota you placed on them.
+  - apiGroups: [quota.openshift.io]
+    resources: [clusterresourcequotas, clusterresourcequotas/status, appliedclusterresourcequotas]
+    verbs: [get, list, watch]
+
+  # --- Cluster-wide event read (troubleshooting) ---------------------------
+  - apiGroups: ["", events.k8s.io]
+    resources: [events]
+    verbs: [get, list, watch]
+
+
+
+
+# ---------------------------------------------------------------------------
+# abc-hcp-namespaced-role
+#
+# A ClusterRole that is NEVER bound with a ClusterRoleBinding. It is bound
+# per-namespace by a RoleBinding that Kyverno generates automatically for
+# every namespace the tenant creates (see 03-kyverno-guardrails.yaml).
+#
+# This is the whole answer to "how do we stop them reading abc-* secrets
+# without hand-creating RoleBindings". Tenants get full power, including
+# secrets, in every namespace they own. In abc-* the grant simply never
+# exists -- there is no policy to bypass, no webhook to delete, and reads
+# are covered (which admission control can never do).
+# ---------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: abc-hcp-namespaced-role
+  labels:
+    app: cluster-config
+    abc.platform/bind-scope: namespaced   # tripwire: alert if a CRB references this
+rules:
+  {{- if .Values.virtualCluster.dcscHcpNamespacedRoleAdditionalRules }}
+  {{- toYaml .Values.virtualCluster.dcscHcpNamespacedRoleAdditionalRules | nindent 2 }}
+  {{- end }}
+
+  # --- Core ----------------------------------------------------------------
   - apiGroups: [""]
     resources:
       - configmaps
       - secrets
-      - endpoints # Check this
+      - endpoints
       - persistentvolumeclaims
       - persistentvolumeclaims/status
       - pods
@@ -31,23 +236,13 @@ rules:
       - services
       - services/status
       - services/proxy
-      - namespaces
-      - namespaces/status
-      - resourcequotausages
       - resourcequotas
       - resourcequotas/status
       - limitranges
       - events
     verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
-  - apiGroups: [""]
-    resources:
-      - persistentvolumes
-      - persistentvolumes/status
-      - endpoints
-      - bindings
-    verbs: [get, list, watch]
-
+  # --- Workloads -----------------------------------------------------------
   - apiGroups: [apps, extensions]
     resources:
       - deployments
@@ -75,12 +270,20 @@ rules:
       - deploymentconfigs/scale
       - deploymentconfigs/log
       - deploymentconfigs/status
-      - deploymentconfigrollbacks
       - deploymentconfigs/instantiate
       - deploymentconfigs/rollback
+      - deploymentconfigrollbacks
     verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
-  # OpenShift Builds & Image Streams
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers, horizontalpodautoscalers/status]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets, poddisruptionbudgets/status]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
+  # --- Builds & images -----------------------------------------------------
   - apiGroups: [build.openshift.io]
     resources:
       - buildlogs
@@ -96,28 +299,28 @@ rules:
 
   - apiGroups: [image.openshift.io]
     resources:
-      - imagesignatures
-      - imagestreamimages
-      - imagestreammappings
       - imagestreams
       - imagestreams/secrets
       - imagestreams/layers
       - imagestreams/status
+      - imagestreamimages
+      - imagestreammappings
       - imagestreamtags
       - imagetags
       - imagestreamimports
     verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
-  - apiGroups: [image.openshift.io]
-    resources: [images]
-    verbs: [get, list, watch] # Images object itself is global
-
+  # --- Networking ----------------------------------------------------------
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies]
     verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+
   - apiGroups: [networking.k8s.io]
-    resources: [ingresses, ingresses/status, ingressclasses]
+    resources: [ingresses, ingresses/status]
     {{- if eq (lower .Values.virtualCluster.type) "development" }}
     verbs: [get, list, watch]
     {{- else }}
@@ -125,148 +328,296 @@ rules:
     {{- end }}
 
   - apiGroups: [route.openshift.io]
-    resources:
-      - routes
-      - routes/custom-host
-      - routes/status
+    resources: [routes, routes/custom-host, routes/status]
     {{- if eq (lower .Values.virtualCluster.type) "development" }}
     verbs: [get, list, watch]
     {{- else }}
     verbs: [get, list, watch, create, update, patch, delete, deletecollection]
     {{- end }}
 
+  # --- Namespaced RBAC -----------------------------------------------------
   - apiGroups: [rbac.authorization.k8s.io]
     resources: [roles, rolebindings]
     verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
-  - apiGroups: [rbac.authorization.k8s.io]
-    resources: [clusterroles, clusterrolebindings]
+  - apiGroups: [authorization.openshift.io]
+    resources: [roles, rolebindings]
     verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
-  - apiGroups: [authorization.openshift.io]   # Check scope of this
-    resources: [roles, rolebindings, rolebindingrestrictions]
-    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
-
-  - apiGroups: [authorization.openshift.io, authorization.k8s.io]  # Check scope of this
+  # --- Monitoring: WRITE ---------------------------------------------------
+  # Changed from read-only in the original. On a dedicated cluster a tenant
+  # must be able to wire up ServiceMonitors and alert rules for their own
+  # workloads without asking you.
+  - apiGroups: [monitoring.coreos.com]
     resources:
-      - resourceaccessreviews
-      - subjectaccessreviews
-      - localresourceaccessreviews
-      - localsubjectaccessreviews
-      - subjectrulesreviews
-    verbs: [create]
-
-  - apiGroups: [user.openshift.io]
-    resources: [groups, users, identities, useridentitymappings]
-    verbs: [get, list, watch] # Read-only access to user/group directory
-
-  - apiGroups: [project.openshift.io]
-    resources: [projects, projectrequests]
-    verbs: [get, list, watch, create, update, patch, delete]
-
-  - apiGroups: [monitoring.coreos.com, monitoring.openshift.io]
-    resources:
-      - alertmanagerconfigs
+      - servicemonitors
       - podmonitors
       - probes
       - prometheusrules
-      - servicemonitors
-      - alertingrules
-      - alertrelabelconfigs
-      - alertmanagers
-      - prometheuses
-      - thanosrulers
-    verbs: [get, list, watch]
-
-  - apiGroups:
-      - "operator.openshift.io"
-      - "console.openshift.io"
-      - "oauth.openshift.io"
-      - "apiregistration.k8s.io"
-    resources: ["*"]
-    verbs: [get, list, watch]
-
-  - apiGroups: [quota.openshift.io]
-    resources:
-      - clusterresourcequotas
-      - clusterresourcequotas/status
-      - appliedclusterresourcequotas
+      - alertmanagerconfigs
     verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
-  - apiGroups: [security.openshift.io]
-    resources:
-      - securitycontextconstraints
-      - podsecuritypolicyreviews
-      - podsecuritypolicyselfsubjectreviews
-      - podsecuritypolicysubjectreviews
-    verbs: [get, list, watch, create, update, patch, delete, use]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [prometheuses, alertmanagers, thanosrulers]
+    verbs: [get, list, watch]
 
-  - apiGroups: [imageregistry.operator.openshift.io]
+  - apiGroups: [monitoring.openshift.io]
+    resources: [alertingrules, alertrelabelconfigs]
+    verbs: [get, list, watch, create, update, patch, delete]
+
+  # --- OLM: self-service operator install ----------------------------------
+  # Safe ONLY in combination with the require-operatorgroup-sa Kyverno rule.
+  # With spec.serviceAccountName set, OLM installs as that SA; because the
+  # tenant has no `escalate`, no SA they create can exceed their own ceiling,
+  # so a CSV demanding cluster-admin fails closed instead of granting it.
+  - apiGroups: [operators.coreos.com]
     resources:
-      - configs
-      - imagepruners
+      - subscriptions
+      - catalogsources
+      - installplans
+      - clusterserviceversions
+      - operatorgroups
+    verbs: [get, list, watch, create, update, patch, delete]
+
+  # --- Templates & Helm ----------------------------------------------------
+  - apiGroups: [template.openshift.io]
+    resources: [templates, templateconfigs, templateinstances, processedtemplates]
     verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
   - apiGroups: [helm.openshift.io]
-    resources:
-      - helmchartrepositories
-      - projecthelmchartrepositories
+    resources: [projecthelmchartrepositories]
     verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
-  - apiGroups: [samples.operator.openshift.io]
-    resources: [configs]
-    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+  # --- Local access review -------------------------------------------------
+  - apiGroups: [authorization.openshift.io, authorization.k8s.io]
+    resources: [localresourceaccessreviews, localsubjectaccessreviews, subjectrulesreviews]
+    verbs: [create]
 
-  - apiGroups: [config.openshift.io]
-    resources:
-      - clusteroperators
-      - clusterversions
-      - featuregates
-      - infrastructures
-      - proxies
-      - consoles
-      - dnses
-      - networks
-      - apiservers
-    verbs: [get, list, watch]
 
-  - apiGroups: [autoscaling]
-    resources: [horizontalpodautoscalers, horizontalpodautoscalers/status]
-    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
-  - apiGroups: [policy]
-    resources: [poddisruptionbudgets, poddisruptionbudgets/status]
-    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
-  - apiGroups: [coordination.k8s.io, metrics.k8s.io, discovery.k8s.io]
-    resources: ["*"]
-    verbs: [get, list, watch]
+# ---------------------------------------------------------------------------
+# Kyverno guardrails for the HCP tenant RBAC model.
+#
+# Ordering of importance:
+#   1. auto-bind-tenant-namespaced-role  -- makes the model self-service
+#   2. protect-platform-namespaces       -- stops abc-* being created/deleted
+#   3. protect-platform-crds             -- stops Kyverno being deleted
+#   4. deny-clusterrole-aggregation      -- closes the escalation-prevention hole
+#   5. require-operatorgroup-sa          -- makes self-service OLM safe
+#
+# Webhooks must be failurePolicy: Fail. Tenants have no admissionregistration
+# permission, so they cannot weaken them.
+# ---------------------------------------------------------------------------
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: auto-bind-tenant-namespaced-role
+  annotations:
+    policies.kyverno.io/description: >-
+      Grants the tenant group full namespaced rights in every namespace they
+      create. Platform namespaces are excluded, so the grant never exists
+      there. This replaces per-namespace RoleBindings created by hand.
+spec:
+  background: true
+  rules:
+    - name: generate-tenant-rolebinding
+      match:
+        any:
+          - resources:
+              kinds: [Namespace]
+      exclude:
+        any:
+          - resources:
+              names:
+                - "abc-*"
+                - "openshift-*"
+                - "kube-*"
+                - default
+                - kyverno
+      generate:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: RoleBinding
+        name: abc-hcp-tenant-admin
+        namespace: "{{ `{{request.object.metadata.name}}` }}"
+        synchronize: true      # recreate if a tenant deletes it; keep in sync
+        data:
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: kyverno
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: abc-hcp-namespaced-role
+          subjects:
+            - kind: Group
+              apiGroup: rbac.authorization.k8s.io
+              name: {{ .Values.virtualCluster.tenantGroup | quote }}
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: protect-platform-namespaces
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    # Without this, a tenant creates namespace "abc-evil", the generate rule
+    # skips it, but they then hand-bind their own role into it -- and more
+    # importantly the abc-* naming convention stops meaning anything.
+    - name: deny-platform-namespace-create
+      match:
+        any:
+          - resources:
+              kinds: [Namespace]
+              operations: [CREATE]
+              names: ["abc-*", "openshift-*", "kube-*"]
+      exclude:
+        any:
+          - clusterRoles: [cluster-admin]
+          - subjects:
+              - kind: ServiceAccount
+                name: {{ .Values.virtualCluster.platformServiceAccount | quote }}
+                namespace: {{ .Values.virtualCluster.platformNamespace | quote }}
+      validate:
+        message: "Namespaces matching abc-*, openshift-*, kube-* are platform-managed."
+        deny: {}
 
-  # Need to restrict or add kyverno policies to restrict the access to CRDS installed by DCS
-  - apiGroups: [apiextensions.k8s.io]
-    resources: [customresourcedefinitions, customresourcedefinitions/status]
-    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+    # DELETE is the operation most edit-blocking policies forget to match.
+    - name: deny-platform-namespace-mutate
+      match:
+        any:
+          - resources:
+              kinds: [Namespace]
+              operations: [UPDATE, DELETE]
+              names: ["abc-*", "openshift-*", "kube-*"]
+      exclude:
+        any:
+          - clusterRoles: [cluster-admin]
+          - subjects:
+              - kind: ServiceAccount
+                name: {{ .Values.virtualCluster.platformServiceAccount | quote }}
+                namespace: {{ .Values.virtualCluster.platformNamespace | quote }}
+      validate:
+        message: "Platform namespaces cannot be modified or deleted by tenants."
+        deny: {}
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: protect-platform-crds
+  annotations:
+    policies.kyverno.io/description: >-
+      Tenants hold full write on CRDs so they can self-service operators.
+      Deleting the Kyverno CRDs would garbage-collect every ClusterPolicy on
+      the cluster, including this one. Name allow-listing is the only defence,
+      since RBAC resourceNames does not work for list/watch.
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    - name: deny-protected-crd-writes
+      match:
+        any:
+          - resources:
+              kinds: [CustomResourceDefinition]
+              operations: [UPDATE, DELETE]
+      exclude:
+        any:
+          - clusterRoles: [cluster-admin]
+          - subjects:
+              - kind: ServiceAccount
+                name: {{ .Values.virtualCluster.platformServiceAccount | quote }}
+                namespace: {{ .Values.virtualCluster.platformNamespace | quote }}
+      validate:
+        message: "This CRD is platform-managed and cannot be modified or deleted."
+        pattern:
+          metadata:
+            name: "!*.kyverno.io | !*.hypershift.openshift.io | !*.config.openshift.io | !*.security.openshift.io | !*.abc.internal"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: deny-clusterrole-aggregation
+  annotations:
+    policies.kyverno.io/description: >-
+      RBAC escalation prevention inspects rules, not labels. A tenant can
+      create a ClusterRole labelled aggregate-to-view containing arbitrary
+      rules; the aggregation controller (running as system:masters) then
+      merges those rules into view/edit/admin on their behalf. This is the
+      only real escalation path left once escalate and bind are absent.
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    - name: deny-aggregation-labels
+      match:
+        any:
+          - resources:
+              kinds: [ClusterRole]
+              operations: [CREATE, UPDATE]
+      exclude:
+        any:
+          - clusterRoles: [cluster-admin]
+          - subjects:
+              - kind: ServiceAccount
+                name: {{ .Values.virtualCluster.platformServiceAccount | quote }}
+                namespace: {{ .Values.virtualCluster.platformNamespace | quote }}
+      preconditions:
+        all:
+          - key: "{{ `{{ request.object.metadata.labels || '{}' | keys(@) | join(',', @) }}` }}"
+            operator: AnyIn
+            value: ["*aggregate-to*"]
+      validate:
+        message: "ClusterRoles carrying aggregate-to-* labels are not permitted (privilege escalation via the aggregation controller)."
+        deny: {}
 
-  - apiGroups: [operators.coreos.com]
-    resources: [
-      clusterserviceversions,
-      catalogsources,
-      installplans,
-      subscriptions,
-      operatorgroups
-    ]
-    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+    - name: deny-aggregation-rule
+      match:
+        any:
+          - resources:
+              kinds: [ClusterRole]
+              operations: [CREATE, UPDATE]
+      exclude:
+        any:
+          - clusterRoles: [cluster-admin]
+      validate:
+        message: "Defining an aggregationRule is not permitted."
+        pattern:
+          X(aggregationRule): "null"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-operatorgroup-sa
+  annotations:
+    policies.kyverno.io/description: >-
+      Without spec.serviceAccountName, OLM installs operators using its own
+      cluster-admin service account and will grant a tenant-supplied CSV
+      whatever permissions it requests. With it set, OLM installs as that SA;
+      since tenants have no escalate verb, no SA they can create exceeds the
+      tenant ceiling, so an over-reaching CSV fails to install instead of
+      escalating. This single field is what makes self-service OLM safe.
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    - name: operatorgroup-must-pin-sa
+      match:
+        any:
+          - resources:
+              kinds: [OperatorGroup]
+              operations: [CREATE, UPDATE]
+      exclude:
+        any:
+          - clusterRoles: [cluster-admin]
+          - resources:
+              namespaces: ["abc-*", "openshift-*"]
+      validate:
+        message: "OperatorGroup must set spec.serviceAccountName. Operators install with that SA's permissions, not cluster-admin."
+        pattern:
+          spec:
+            serviceAccountName: "?*"
 
-  - apiGroups: [packages.operators.coreos.com]
-    resources: [packagemanifests, packagemanifests/icon]
-    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
 
-# OpenShift Templates (Full Access)
-  - apiGroups: [template.openshift.io]
-    resources:
-      - templates
-      - templateconfigs
-      - templateinstances
-      - processedtemplates
-      - brokertemplateinstances
-    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
