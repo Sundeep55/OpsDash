@@ -2,15 +2,6 @@
 # Request schema — the single declaration of every field any onboarding request
 # can carry, for every operation this repo performs.
 #
-# Three consumers read this file:
-#
-#   1. pipeline-scripts/load-payload.sh   at run time, to turn REQUEST_PAYLOAD
-#                                         into the INPUT_* variables the
-#                                         scaffold/decommission scripts expect
-#   2. the GitLab Pages form              at build time, to render itself
-#   3. OpsDash                            fetched over the API, to render the
-#                                         same form without an OpsDash release
-#
 # ADDING A FIELD
 # --------------
 #   1. add a block under `fields:`
@@ -128,6 +119,10 @@ operations:
       - cloudnativepg_operator
       - cert_manager_operator
       - loki_operator
+      - percona_mongodb_operator
+      - keycloak_operator
+      - sealed_secrets_rbac
+      - strimzi_operator
 
   namespace.update:
     title: Namespace — update
@@ -140,16 +135,8 @@ operations:
       INPUT_MODE: "update"
       INPUT_CREATE_CSO: "false"
       INPUT_IS_DEVSPACE: "false"
-    # namespace_name is optional on create (a new tenant is named after itself)
-    # but meaningless without it here.
     required:
       - namespace_name
-    # Deliberately short. Every setting here is applied by the scaffold script as
-    # "if true, enable" and never as "if false, disable", so leaving a box
-    # unticked leaves the namespace alone. That is what makes this operation safe
-    # to offer today. Adding a two-way setting — resource quota, project users —
-    # needs the current values read back first, or an unticked box would wipe
-    # something the operator never saw. See pipelineRedesign.md §9.
     fields:
       - request_id
       - requester_email
@@ -167,6 +154,10 @@ operations:
       - cloudnativepg_operator
       - cert_manager_operator
       - loki_operator
+      - percona_mongodb_operator
+      - keycloak_operator
+      - sealed_secrets_rbac
+      - strimzi_operator
 
   devspace.create:
     title: DevSpace — create
@@ -190,8 +181,6 @@ operations:
       - tenant_name
       - siglum
       - cost_center
-      - lifecycle
-      - ard_link
 
   namespace.decommission:
     title: Namespace — decommission
@@ -210,6 +199,70 @@ operations:
       - target_cluster
       - tenant_name
       - namespace_name
+
+  capsule.create:
+    title: Capsule - create
+    description: >-
+      Creates a new Capsule Sub-Tenant under a new or existing tenant. Fails if the
+      Sub-Tenant already exists - use "Capsule - update" for that.
+    job: scaffold-capsule
+    sets:
+      INPUT_MODE: "create"
+    fields:
+      - request_id
+      - requester_email
+      - requested_at
+      - target_cluster
+      - tenant_name
+      - sub_tenant_name
+      - siglum
+      - cost_center
+      - lifecycle
+      - ard_link
+      - route_exception
+      - gpu_enabled
+      - gpu_tier
+
+  capsule.update:
+    title: Capsule - update
+    description: >-
+      Changes ann existing Capsule sub-tenant. Only the settings below can be changed by
+      the pipeline; everything else in values.yaml is written once at creation
+      and is still an MR edit.
+    job: scaffold-capsule
+    sets:
+      INPUT_MODE: "update"
+    required:
+      - sub_tenant_name
+    fields:
+      - request_id
+      - requester_email
+      - requested_at
+      - target_cluster
+      - tenant_name
+      - sub_tenant_name
+      - lifecycle
+      - route_exception
+      - gpu_enabled
+      - gpu_tier
+  
+  capsule.decommission:
+    title: Capsule - decommission
+    description: >-
+      Retires a Capsule sub-tenant. The values.yaml is archived under
+      .decommissioned_sub_tenants so the resources it held stay on record.
+    job: decommission
+    sets:
+      INPUT_DECOMMISSION_SUB_TENANT: "true"
+    required:
+      - sub_tenant_name
+    fields:
+      - request_id
+      - requester_email
+      - requested_at
+      - target_cluster
+      - tenant_name
+      - sub_tenant_name
 
   cso.create:
     title: EgressIP (cluster scope object) — create
@@ -314,15 +367,6 @@ fields:
     required: true
     normalise: lower
     default: ""
-    # NOTE — a decision for you. The mirror script used to additionally require
-    # the address to match ^...@zzz\.com$, while the namespace scripts accepted
-    # any address. Merging into one field means one rule for everything, and
-    # promoting the mirror's restriction would start rejecting namespace
-    # requests that are legal today. It is therefore NOT applied. If every
-    # requester really is on that one domain, add:
-    #     pattern: "^[a-z0-9._%+-]+@zzz\\.com$"
-    # and it will apply uniformly to all five operations, which is the point of
-    # having one declaration.
 
   requested_at:
     group: request
@@ -334,15 +378,6 @@ fields:
     env: INPUT_REQUESTED_TIMESTAMP
     required: true
     default: ""
-    # The operator pastes what MyITSM shows; the pipeline stores ISO 8601.
-    # `input_format` is what arrives, the export is always ISO.
-    #
-    # The conversion itself is unchanged and deliberate — it is only its
-    # location that moved. It used to be written out twice, once in each
-    # script's validate_inputs, while the registry-mirror script skipped it and
-    # demanded ISO from the operator instead. That is why the two repos
-    # disagreed about timestamp format. Doing it once here means the operator
-    # pastes the same thing for every operation and every script receives ISO.
     input_format: "DD/MM/YYYY HH:mm:ss"
 
   target_cluster:
@@ -382,10 +417,25 @@ fields:
     env: INPUT_NAMESPACE_NAME
     normalise: lower
     default: ""
-    # validate_inputs rejects these; declared here so the form can too, and so
-    # the rule lives in one place.
     deny_prefix: ["dcsc-ds", "dcsc-cso"]
     source: { index: namespaces, by: [target_cluster, tenant_name] }
+
+  sub_tenant_name:
+    group: placement
+    label: Capsule sub-tenant
+    description: >-
+      Leave empty for a brand-new tenant and the sub-tenant is named after it.
+      For an existing tenant this is required — pick the sub-tenant to update, or
+      type a new name to add one. A four-character suffix is appended by the
+      pipeline; it is generated at run time and is not predictable here.
+    type: string
+    env: INPUT_SUB_TENANT
+    normalise: lower
+    default: ""
+    deny_prefix: ["dcsc-ds", "dcsc-cso"]
+    # A sub-tenant is a directory whose Chart.yaml depends on dcs-tenant-provisioner
+    # (a Capsule); namespaces are filtered out of this picklist by the same split.
+    source: { index: sub_tenants, by: [target_cluster, tenant_name] }
 
   siglum:
     group: classification
@@ -403,9 +453,6 @@ fields:
     description: Billing or WBS code. Leave empty for a non-billable tenant.
     type: string
     env: INPUT_COST_CENTER
-    normalise: upper
-    # Only checked when a value is given; an empty cost centre is a legitimate
-    # answer meaning non-billable.
     pattern: "^[A-Za-z0-9._/-]+$"
     default: ""
 
@@ -476,26 +523,12 @@ fields:
     env: INPUT_GPU_TIER
     options: ["standard", "dedicated.h200", "dedicated.h200.1g.18gb"]
     default: "None"
-    # validate_inputs requires the literal "None" when GPU is off, so that is
-    # what a hidden field must send.
     absent_value: "None"
     show_if: { gpu_enabled: "true" }
     required_if: { gpu_enabled: "true" }
 
   # --- Operators ---------------------------------------------------------
-  # These are deliberately one-way: the scaffold script sets an operator to
-  # `true` and never to `false`.
-  #
-  # The reason is that a request carries no knowledge of what is already
-  # enabled. Every toggle defaults to false, so on an *update* an operator who
-  # did not re-tick a box would silently disable an operator the namespace was
-  # already using. One-way means the worst case is a redundant enable rather
-  # than an unnoticed removal.
-  #
-  # Turning an operator off is therefore a manual edit during MR review, on
-  # purpose. Revisit only when the form can read a namespace's current state and
-  # pre-tick these accurately — it cannot today; index.json carries tenants and
-  # namespaces, not per-namespace values.yaml contents.
+
   argocd_operator:
     group: operators
     label: ArgoCD
@@ -529,6 +562,34 @@ fields:
     label: Loki
     type: boolean
     env: INPUT_LOKI_OPERATOR
+    default: "false"
+
+  percona_mongodb_operator:
+    group: operators
+    label: Percona MongoDB
+    type: boolean
+    env: INPUT_PERCONA_MONGODB_OPERATOR
+    default: "false"
+
+  keycloak_operator:
+    group: operators
+    label: Keycloak
+    type: boolean
+    env: INPUT_KEYCLOAK_OPERATOR
+    default: "false"
+
+  sealed_secrets_rbac:
+    group: operators
+    label: Sealed Secrets RBAC
+    type: boolean
+    env: INPUT_SEALED_SECRETS
+    default: "false"
+
+  strimzi_operator:
+    group: operators
+    label: Strimzi Kafka
+    type: boolean
+    env: INPUT_STRIMZI_OPERATOR
     default: "false"
 
   egressip_allocation:
@@ -591,9 +652,6 @@ fields:
     env: INPUT_REGISTRY_NEEDS_CREDENTIALS
     default: "false"
     absent_value: "false"
-    # The internal replication types supply their own robot-account credentials
-    # and ignore this flag entirely, so asking for it there could only produce a
-    # validation error about credentials that would never be used.
     show_if: { replication_type: "external" }
 
   registry_username:
