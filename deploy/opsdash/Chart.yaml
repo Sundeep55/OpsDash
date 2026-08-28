@@ -1,0 +1,18 @@
+apiVersion: v2
+name: opsdash
+description: Ops Control Plane -- a read-only dashboard over the GitOps customer-instances repo.
+type: application
+
+# The chart's own version. Bump on every change to the templates.
+version: 0.1.0
+
+# The default application version. values.yaml image.tag is empty by default and
+# falls back to this, so `helm upgrade --set image.tag=` is not needed for the
+# common case of deploying the version this chart was published with.
+appVersion: "0.1.0"
+
+home: https://gitlab.com/dcs/dcs-customer-instances
+keywords:
+  - gitops
+  - idp
+  - openshift

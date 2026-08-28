@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# Example ArgoCD Application for the opsdash chart.
+#
+# Not applied by the chart -- this is the object that makes ArgoCD deploy it, so
+# it lives outside. Copy it, set repoURL, hostname and gitlab.projectId, and
+# apply it into the namespace ArgoCD watches.
+#
+# Create the Secret before the first sync. It is deliberately NOT part of this
+# Application: it is not in Git, so selfHeal would try to reconcile an object it
+# cannot see and report the app permanently OutOfSync. See deploy/opsdash/README.md.
+# ---------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ops-portal
+  namespace: openshift-gitops
+spec:
+  project: default
+
+  source:
+    repoURL: https://gitlab.com/dcs/ops-control-plane.git
+    targetRevision: main
+    path: deploy/opsdash
+    helm:
+      valueFiles:
+        - values.yaml
+      # Per-environment overrides. Everything else comes from values.yaml, so
+      # this list stays short enough to read.
+      parameters:
+        - name: hostname
+          value: ops-control-plane.example.com
+        - name: gitlab.projectId
+          value: "1234"
+        - name: image.tag
+          value: "0.1.0"
+
+  destination:
+    server: https://kubernetes.default.svc
+    # The chart hardcodes no namespace; this is what places the objects.
+    namespace: dcs-cluster-config
+
+  syncPolicy:
+    automated:
+      # Safe: the PVC carries helm.sh/resource-policy: keep, which ArgoCD
+      # honours, so a prune does not take the database with it.
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

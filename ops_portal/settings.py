@@ -178,8 +178,11 @@ GITOPS_LAYOUT = {
     ),
 }
 
-PORTAL_NAME = "Ops Control Plane"
-PORTAL_TITLE = "IDP Dashboard"
+# Read from the environment because the deployment's ConfigMap has always set
+# both -- they were hardcoded here, so setting them there changed nothing and
+# gave no indication of why.
+PORTAL_NAME = os.environ.get('PORTAL_NAME', 'Ops Control Plane')
+PORTAL_TITLE = os.environ.get('PORTAL_TITLE', 'IDP Dashboard')
 GIT_BROWSER_URL = os.environ.get('GIT_BROWSER_URL', '')
 
 LOGIN_URL = '/accounts/login/'

@@ -1,0 +1,76 @@
+{{/*
+Non-sensitive configuration for both containers.
+
+Everything here is read by ops_portal/settings.py, dashboard/gitops/fetcher.py or
+poll_gitlab_pipelines.py. Nothing is decorative: a key that no code reads is a
+key an operator will set and then spend an afternoon wondering why it had no
+effect.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "opsdash.fullname" . }}-config
+  labels:
+    {{- include "opsdash.labels" . | nindent 4 }}
+data:
+  # --- Django ---
+  DJANGO_DEBUG: {{ .Values.django.debug | quote }}
+  DJANGO_ALLOWED_HOSTS: {{ include "opsdash.allowedHosts" . | quote }}
+  DJANGO_CSRF_TRUSTED_ORIGINS: {{ include "opsdash.csrfTrustedOrigins" . | quote }}
+
+  # SQLite on the PersistentVolume. Checked against persistence.mountPath at
+  # render time -- a path outside the volume fails the install rather than
+  # producing a dashboard that looks fine and loses its database on restart.
+  DATABASE_PATH: {{ include "opsdash.databasePath" . | quote }}
+
+  # --- UI text ---
+  PORTAL_NAME: {{ .Values.portal.name | quote }}
+  PORTAL_TITLE: {{ .Values.portal.title | quote }}
+
+  # --- GitLab sync ---
+  GITLAB_URL: {{ .Values.gitlab.url | quote }}
+  GITLAB_PROJECT_ID: {{ .Values.gitlab.projectId | quote }}
+  GITLAB_BRANCH: {{ .Values.gitlab.branch | quote }}
+  GITLAB_SSL_VERIFY: {{ .Values.gitlab.sslVerify | quote }}
+  POLL_INTERVAL_SECONDS: {{ .Values.gitlab.pollIntervalSeconds | quote }}
+
+  # --- Deep links from the UI into the repo tree ---
+  GIT_BROWSER_URL: {{ .Values.gitlab.browserUrl | quote }}
+
+  {{- with .Values.gitopsLayout }}
+
+  # --- GitOps repository layout overrides ---
+  {{- with .provisionerKey }}
+  GITOPS_PROVISIONER_KEY: {{ . | quote }}
+  {{- end }}
+  {{- with .capsuleKey }}
+  GITOPS_CAPSULE_KEY: {{ . | quote }}
+  {{- end }}
+  {{- with .egressKey }}
+  GITOPS_EGRESS_KEY: {{ . | quote }}
+  {{- end }}
+  {{- with .serviceMeshKey }}
+  GITOPS_SERVICE_MESH_KEY: {{ . | quote }}
+  {{- end }}
+  {{- with .registryConfigKey }}
+  GITOPS_REGISTRY_CONFIG_KEY: {{ . | quote }}
+  {{- end }}
+  {{- with .tenantMetadataFile }}
+  GITOPS_TENANT_METADATA_FILE: {{ . | quote }}
+  {{- end }}
+  {{- with .chartFile }}
+  GITOPS_CHART_FILE: {{ . | quote }}
+  {{- end }}
+  {{- with .templatesDir }}
+  GITOPS_TEMPLATES_DIR: {{ . | quote }}
+  {{- end }}
+  {{- with .decommissionedTenantsDir }}
+  GITOPS_DECOMMISSIONED_TENANTS_DIR: {{ . | quote }}
+  {{- end }}
+  {{- with .decommissionedNamespacesDir }}
+  GITOPS_DECOMMISSIONED_NAMESPACES_DIR: {{ . | quote }}
+  {{- end }}
+  {{- with .skipFilenames }}
+  GITOPS_SKIP_FILENAMES: {{ . | quote }}
+  {{- end }}
+  {{- end }}

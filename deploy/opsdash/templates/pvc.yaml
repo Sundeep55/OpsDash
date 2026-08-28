@@ -1,0 +1,25 @@
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "opsdash.pvcName" . }}
+  labels:
+    {{- include "opsdash.labels" . | nindent 4 }}
+  {{- if .Values.persistence.retain }}
+  annotations:
+    # Keep the database when the release is uninstalled. Helm otherwise deletes
+    # every object it created, and this is the only one that cannot be rebuilt
+    # from Git -- the sync would repopulate the GitOps state, but not the local
+    # users, sessions or anything else Django writes.
+    helm.sh/resource-policy: keep
+  {{- end }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size | quote }}
+{{- end }}

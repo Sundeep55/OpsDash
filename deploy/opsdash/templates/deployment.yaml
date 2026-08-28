@@ -1,0 +1,188 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opsdash.fullname" . }}
+  labels:
+    {{- include "opsdash.labels" . | nindent 4 }}
+spec:
+  # Pinned, not exposed as a value. Two replicas would be two Gunicorn processes
+  # and two sync daemons writing the same SQLite file over ReadWriteOnce -- and
+  # the second pod cannot even schedule, because the volume is already attached.
+  replicas: 1
+
+  strategy:
+    # Recreate, not the default RollingUpdate.
+    #
+    # RollingUpdate with maxSurge 25% rounds up to 1, so it starts the
+    # replacement pod before terminating the old one. The replacement wants the
+    # same ReadWriteOnce volume the old pod still holds; if the scheduler places
+    # it on another node it fails to attach, and the old pod is never terminated
+    # because the new one never goes Ready. The rollout wedges until it times
+    # out. Whether it happens at all depends on which node the scheduler picks,
+    # which is the worst kind of deployment bug -- it works until it doesn't.
+    #
+    # Recreate accepts a few seconds of downtime instead. For a read-only
+    # dashboard with one replica that is not a trade worth agonising over.
+    type: Recreate
+
+  selector:
+    matchLabels:
+      {{- include "opsdash.selectorLabels" . | nindent 6 }}
+
+  template:
+    metadata:
+      annotations:
+        # Roll the pods when the configuration changes. Without this, editing a
+        # ConfigMap value has no effect at all until something else happens to
+        # restart the pod -- envFrom is read once at container start. Operators
+        # reasonably assume a synced ConfigMap means a live change.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.secret.create }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "opsdash.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.serviceAccount.create .Values.serviceAccount.name }}
+      serviceAccountName: {{ include "opsdash.serviceAccountName" . }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      volumes:
+        - name: sqlite-data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "opsdash.pvcName" . }}
+          {{- else }}
+          # Ephemeral: the database is rebuilt by the sync on every restart.
+          # Acceptable for a preview install, never for production -- local
+          # users and sessions do not survive.
+          emptyDir: {}
+          {{- end }}
+
+      containers:
+        # ------------------------------------------------------ web server
+        - name: web-server
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            {{- include "opsdash.envFrom" . | nindent 12 }}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: sqlite-data
+              mountPath: {{ .Values.persistence.mountPath }}
+          resources:
+            {{- toYaml .Values.resources.web | nindent 12 }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          # --- PROBES ---
+          # Each one sends an explicit Host header; see opsdash.httpProbe. The
+          # kubelet would otherwise probe by pod IP, which is not in
+          # ALLOWED_HOSTS, so Django answers 400 and every probe fails.
+
+          # entrypoint.sh runs `manage.py migrate` before gunicorn binds, and on
+          # a large existing volume that is not instant. The startup probe gives
+          # it the budget without liveness killing it midway, which is the thing
+          # initialDelaySeconds alone cannot express.
+          #
+          # (collectstatic is not part of this: the Dockerfile bakes the static
+          # files into the image at build time.)
+          startupProbe:
+            {{- include "opsdash.httpProbe" (dict "ctx" $ "path" "/healthz") | nindent 12 }}
+            {{- toYaml .Values.probes.startup | nindent 12 }}
+
+          # Deliberately does not touch the database. A long sync can hold the
+          # SQLite write lock, and a liveness probe that queried it would
+          # restart the very container holding the connection.
+          livenessProbe:
+            {{- include "opsdash.httpProbe" (dict "ctx" $ "path" "/healthz") | nindent 12 }}
+            {{- toYaml .Values.probes.liveness | nindent 12 }}
+
+          # Checks the database and schema, so a pod with an unmounted or
+          # unmigrated volume is pulled from the Service instead of serving
+          # errors. Not restarted for it -- that would not fix a bad volume.
+          readinessProbe:
+            {{- include "opsdash.httpProbe" (dict "ctx" $ "path" "/readyz") | nindent 12 }}
+            {{- toYaml .Values.probes.readiness | nindent 12 }}
+
+        # ---------------------------------------------------- sync sidecar
+        - name: sync-sidecar
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Selects the sidecar branch in entrypoint.sh.
+          args: ["sidecar"]
+          envFrom:
+            {{- include "opsdash.envFrom" . | nindent 12 }}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: sqlite-data
+              mountPath: {{ .Values.persistence.mountPath }}
+          resources:
+            {{- toYaml .Values.resources.sync | nindent 12 }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          # The sidecar serves no HTTP, so this is an exec probe against the
+          # heartbeat the poll loop writes each iteration. That loop swallows
+          # every exception on purpose -- a network blip must not kill the
+          # daemon -- which means a wedged iteration would otherwise look
+          # healthy indefinitely, since the process is still running.
+          #
+          # bin/sidecar_health.py imports no Django: a probe every 30s for the
+          # life of the pod should not pay Django's startup cost, nor open the
+          # SQLite file the sync is writing.
+          #
+          # The staleness limit derives from POLL_INTERVAL_SECONDS (6x, floor
+          # 300s), so changing the interval in values.yaml does not silently
+          # invalidate this probe.
+          livenessProbe:
+            exec:
+              command: ["python3", "/app/bin/sidecar_health.py"]
+            {{- toYaml .Values.probes.sync | nindent 12 }}
+
+          # No readinessProbe here, on purpose. Both containers share this pod,
+          # and the Service selects the pod -- so a sidecar marked unready would
+          # pull the *web server* out of the Service and take the dashboard
+          # offline. A broken sync means stale data, which is far better than no
+          # dashboard. Liveness above still restarts it.
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

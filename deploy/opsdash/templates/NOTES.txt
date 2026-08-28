@@ -1,0 +1,39 @@
+{{ .Chart.Name }} {{ .Chart.Version }} installed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+  URL      {{ if .Values.route.enabled }}https://{{ default (include "opsdash.hostname" .) .Values.route.host }}{{ else if .Values.ingress.enabled }}https://{{ include "opsdash.hostname" . }}{{ else }}(no Route or Ingress -- port-forward {{ include "opsdash.fullname" . }}-svc){{ end }}
+  Image    {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+  Database {{ include "opsdash.databasePath" . }}{{ if not .Values.persistence.enabled }}  (EPHEMERAL -- persistence.enabled is false){{ end }}
+
+{{- if not .Values.secret.create }}
+
+The Secret is not managed by this chart. Both containers mount
+{{ include "opsdash.secretName" . }}{{ if not .Values.secret.optional }}, and will not start until it exists{{ end }}:
+
+  oc create secret generic {{ include "opsdash.secretName" . }} \
+    --from-literal=DJANGO_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(50))')" \
+    --from-literal=GITLAB_TOKEN=<read-only api token>
+{{- end }}
+
+{{- if .Values.django.debug }}
+
+WARNING: django.debug is true. Django will serve tracebacks containing settings
+and environment values to anyone who can reach the Route.
+{{- end }}
+
+{{/* toString: a numeric --set gitlab.projectId=1234 arrives as int64, and
+     comparing that to a string is a hard render error, not a false branch. */}}
+{{- if eq (toString .Values.gitlab.projectId) "xx" }}
+
+WARNING: gitlab.projectId is still the placeholder "xx". The sync will fail
+every poll and the dashboard will stay empty.
+{{- end }}
+
+{{- if not .Values.gitlab.sslVerify }}
+
+NOTE: gitlab.sslVerify is false, so the sync does not verify the GitLab
+certificate. Intended for an internal CA that is not in the image's trust store.
+{{- end }}
+
+Check the sync is running:
+
+  oc logs deploy/{{ include "opsdash.fullname" . }} -c sync-sidecar --tail=20

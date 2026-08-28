@@ -1,0 +1,36 @@
+{{- if .Values.ingress.enabled }}
+{{/*
+For clusters without the OpenShift Route API. Not enabled by default -- the
+estate is OpenShift -- but the chart should not be unusable on a plain cluster
+just to save twenty lines.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "opsdash.fullname" . }}
+  labels:
+    {{- include "opsdash.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ include "opsdash.hostname" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "opsdash.fullname" . }}-svc
+                port:
+                  name: http
+{{- end }}

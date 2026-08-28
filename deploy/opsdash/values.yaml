@@ -1,0 +1,217 @@
+# =============================================================================
+# Ops Control Plane
+#
+# Every value below that appeared in the old flat manifest.yaml keeps the same
+# default, so a first install lands on identical objects with identical names.
+# That matters for ArgoCD: it adopts the existing Deployment rather than
+# creating a second one alongside it.
+# =============================================================================
+
+# Resource names. Left as ops-portal so the objects this chart renders match the
+# ones the flat manifest already created in-cluster. Changing it renames every
+# object, which for the Deployment means delete-and-recreate -- its label
+# selector is immutable.
+fullnameOverride: "ops-portal"
+nameOverride: ""
+
+image:
+  repository: registry.com/images/ops-control-plane
+  # Empty means "use Chart.yaml appVersion". Set explicitly to pin.
+  tag: ""
+  pullPolicy: Always
+
+imagePullSecrets: []
+
+# -----------------------------------------------------------------------------
+# The one hostname
+#
+# The flat manifest spelled this out in four places -- ALLOWED_HOSTS, the CSRF
+# origin, the Route, and the Host header on all four HTTP probes. They have to
+# agree: a hostname not in ALLOWED_HOSTS makes Django answer 400 DisallowedHost,
+# and since the kubelet would otherwise probe by pod IP, every probe fails and
+# the container never leaves CrashLoopBackOff.
+#
+# Setting it once here is the point. Override the derived values individually
+# below only if the Route hostname genuinely differs from what Django should
+# accept (split-horizon DNS, an external ingress in front).
+# -----------------------------------------------------------------------------
+hostname: "ops-control-plane.com"
+
+django:
+  debug: false
+  # Defaults to [hostname]. Comma-separated, exactly as Django parses it.
+  allowedHosts: ""
+  # Defaults to https://[hostname].
+  csrfTrustedOrigins: ""
+  # Where the SQLite file lives. Must sit under persistence.mountPath.
+  databasePath: "/app/data/db.sqlite3"
+
+# UI text. Read from the environment by ops_portal/settings.py.
+portal:
+  name: "Ops Control Plane"
+  title: "DCS Operations"
+
+# -----------------------------------------------------------------------------
+# GitLab
+#
+# Everything non-secret. The token is not here -- see `secret` below.
+# -----------------------------------------------------------------------------
+gitlab:
+  url: "https://gitlab.com"
+  projectId: "xx"
+  branch: "main"
+  sslVerify: false
+  pollIntervalSeconds: 30
+  # Deep links from the UI into the repo tree.
+  browserUrl: "https://gitlab.com/dcs/dcs-customer-instances/-/tree/main"
+
+# -----------------------------------------------------------------------------
+# GitOps repository layout
+#
+# Only the keys set here are emitted; anything omitted keeps the default baked
+# into settings.py. Set a key when the real repo names a block or file
+# differently from the placeholder defaults, so a rename in the GitOps repo does
+# not need an image rebuild.
+#
+# Recognised keys (see ops_portal/settings.py GITOPS_LAYOUT):
+#   provisionerKey, capsuleKey, egressKey, serviceMeshKey, registryConfigKey,
+#   tenantMetadataFile, chartFile, templatesDir,
+#   decommissionedTenantsDir, decommissionedNamespacesDir, skipFilenames
+# -----------------------------------------------------------------------------
+gitopsLayout: {}
+  # provisionerKey: namespace-provisioner
+  # capsuleKey: tenant-provisioner
+
+# -----------------------------------------------------------------------------
+# Secret
+#
+# The flat manifest referenced `ops-portal-secret` from both containers but had
+# nothing that created it -- section 2 was an empty comment. A referenced Secret
+# that does not exist leaves the pod in CreateContainerConfigError, so the very
+# first apply of that manifest could not have started.
+#
+# create: false is the default on purpose. This chart is deployed by ArgoCD from
+# Git, and a Secret rendered from values.yaml means a GitLab token in Git. Create
+# it out of band (sealed-secrets, the vault operator, or `oc create secret`) and
+# leave this false.
+#
+# Expected keys:
+#   DJANGO_SECRET_KEY            required in production
+#   GITLAB_TOKEN                 required; read-only api scope is enough
+#   DJANGO_SUPERUSER_USERNAME    optional; entrypoint.sh creates the user if set
+#   DJANGO_SUPERUSER_PASSWORD    optional
+#   DJANGO_SUPERUSER_EMAIL       optional
+#
+# optional: false means a missing Secret stops the pod. Deliberate -- Django
+# falling back to its built-in insecure SECRET_KEY in production is worse than a
+# pod that refuses to start, and a missing GITLAB_TOKEN gives a dashboard that
+# silently shows nothing.
+secret:
+  create: false
+  # Defaults to [fullname]-secret.
+  name: ""
+  optional: false
+  # Only read when create is true. For local and dev installs.
+  stringData: {}
+
+# Extra environment for both containers, for anything this chart does not model.
+extraEnv: []
+#  - name: SIDECAR_HEARTBEAT_PATH
+#    value: /tmp/sidecar-heartbeat
+
+# -----------------------------------------------------------------------------
+# Storage
+#
+# ReadWriteOnce, and replicas is pinned to 1 -- see the note in
+# templates/deployment.yaml.
+# -----------------------------------------------------------------------------
+persistence:
+  enabled: true
+  # Set to use a PVC this chart does not manage. Leaving it empty creates one.
+  existingClaim: ""
+  size: 2Gi
+  accessMode: ReadWriteOnce
+  # Empty means the cluster's default StorageClass.
+  storageClass: ""
+  mountPath: /app/data
+  # Helm deletes a PVC on uninstall by default, taking the database with it.
+  # This keeps it, which is almost always what you want for the one stateful
+  # object in the release.
+  retain: true
+
+service:
+  type: ClusterIP
+  port: 80
+
+# OpenShift Route. Disable for a plain-Kubernetes install and put an Ingress in
+# front of the Service instead.
+route:
+  enabled: true
+  # Defaults to [hostname]. Set empty string with enabled:true and the router
+  # generates a hostname -- which will then not match ALLOWED_HOSTS.
+  host: ""
+  annotations: {}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  tls: []
+
+resources:
+  web:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  sync:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# Probe timings. Exposed because the startup budget depends on how long
+# migrations take against the database already on the volume, which grows.
+probes:
+  # 30 x 5s = 150s for `manage.py migrate` before liveness starts killing it.
+  startup:
+    periodSeconds: 5
+    failureThreshold: 30
+    timeoutSeconds: 3
+  liveness:
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  sync:
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+# Left empty for OpenShift, which assigns a random UID from the namespace's
+# range and rejects a pod that pins runAsUser. The image is already built to
+# tolerate that (group 0 owns /app).
+podSecurityContext: {}
+securityContext: {}
+
+serviceAccount:
+  create: false
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

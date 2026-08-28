@@ -1,0 +1,26 @@
+{{- if .Values.route.enabled }}
+{{/* OpenShift only. Disable it and use ingress.enabled on plain Kubernetes. */}}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "opsdash.fullname" . }}-route
+  labels:
+    {{- include "opsdash.labels" . | nindent 4 }}
+  {{- with .Values.route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # Defaults to the same hostname ALLOWED_HOSTS is built from. Letting the
+  # router generate one instead produces a URL Django then rejects with 400.
+  host: {{ default (include "opsdash.hostname" .) .Values.route.host | quote }}
+  to:
+    kind: Service
+    name: {{ include "opsdash.fullname" . }}-svc
+  port:
+    targetPort: http
+  {{- with .Values.route.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

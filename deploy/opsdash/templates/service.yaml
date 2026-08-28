@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "opsdash.fullname" . }}-svc
+  labels:
+    {{- include "opsdash.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      # By name, not number: the container port is declared once in the
+      # Deployment and the probes reference the same name.
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "opsdash.selectorLabels" . | nindent 4 }}
