@@ -1,0 +1,16 @@
+{% comment %}
+  Capsule tenants.
+
+  Named "Capsules", not "sub-tenants": a tab called Tenants and another called
+  Sub-tenants collapse the moment anyone says them out loud, which is the exact
+  confusion this feature had to avoid. The request field stays sub_tenant_name
+  on the pipeline side.
+{% endcomment %}
+<div v-show="activeTab === 'capsules'">
+    <div v-if="!selected.capsule">
+        {% include 'dashboard/tabs/capsules/list.html' %}
+    </div>
+    <div v-else>
+        {% include 'dashboard/tabs/capsules/detail.html' %}
+    </div>
+</div>

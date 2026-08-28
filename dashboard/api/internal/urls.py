@@ -2,7 +2,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from . import analytics, namespaces, requests, siglums, sync, tenants, users
+from . import analytics, capsules, namespaces, requests, siglums, sync, tenants, users
 
 router = DefaultRouter()
 router.register(r'clusters', tenants.ClusterViewSet, basename='cluster')
@@ -12,6 +12,8 @@ router.register(r'namespaces', namespaces.NamespaceViewSet, basename='namespace'
 urlpatterns = [
     path('', include(router.urls)),
 
+    path('capsules/', capsules.CapsuleListApiView.as_view(), name='api-capsules'),
+    path('capsules/<str:name>/', capsules.CapsuleDetailApiView.as_view(), name='api-capsule-detail'),
     path('users/', users.UserListView.as_view(), name='api-users-list'),
     path('users/<str:email>/', users.UserDetailView.as_view(), name='api-users-detail'),
     path('siglums/', siglums.SiglumListView.as_view(), name='api-siglums-list'),

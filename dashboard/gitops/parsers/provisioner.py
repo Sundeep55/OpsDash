@@ -22,13 +22,31 @@ from ..sections import apply_registered_sections
 from .users import apply_user_access
 
 
+def _label(labels, *names):
+    """Look up a label by name, ignoring any domain prefix.
+
+    Kubernetes labels are namespaced -- the chart writes
+    `dcs.<domain>/lifecycle`, not `lifecycle`. Matching the bare name found
+    nothing, so every namespace fell through to unassigned. Matching only the
+    fully-qualified name would be just as brittle, because the domain is
+    environment-specific and masked differently in the fixtures.
+
+    So: compare the part after the last '/', which is the label's actual name,
+    and accept an unprefixed key too.
+    """
+    wanted = {n.lower() for n in names}
+    for key, value in (labels or {}).items():
+        if str(key).rsplit('/', 1)[-1].strip().lower() in wanted:
+            if value not in (None, ''):
+                return value
+    return None
+
+
 def _extract_lifecycle(required_labels, additional_labels):
     """Lifecycle is spelled either 'lifecycle' or 'env', in either label block."""
     return (
-        required_labels.get('lifecycle')
-        or required_labels.get('env')
-        or additional_labels.get('lifecycle')
-        or additional_labels.get('env')
+        _label(required_labels, 'lifecycle', 'env')
+        or _label(additional_labels, 'lifecycle', 'env')
     )
 
 
@@ -80,7 +98,7 @@ def _apply_egress(egress, ctx):
     if lifecycle:
         namespace.lifecycle = str(lifecycle).strip().lower()
 
-    siglum = required.get('siglum')
+    siglum = _label(required, 'siglum')
     if siglum:
         namespace.siglum = siglum
 
@@ -127,11 +145,13 @@ def _apply_provisioner(prov, ctx):
     namespace.is_devspace = devspace.get('isDevspace', False)
     namespace.devspace_user = devspace.get('devspaceUser') or None
 
-    siglum = required.get('siglum')
+    siglum = _label(required, 'siglum')
     if siglum:
         namespace.siglum = siglum
 
-    egress_name = additional.get('egressip_name')
+    # Written as dcs.<domain>/egressip_name by the chart, so the bare lookup
+    # this used to do never matched and the namespace showed no assigned egress.
+    egress_name = _label(additional, 'egressip_name')
     if egress_name:
         router, _ = EgressRouter.objects.get_or_create(
             name=egress_name, defaults={'cluster': ctx.cluster}
@@ -191,6 +211,11 @@ def _apply_network_policy(prov, ctx):
 def _apply_route_exception(prov, ctx):
     # tenant-metadata.yaml wins: if it granted an exception for this namespace
     # earlier in the walk, leave it alone.
+    #
+    # Both files carry the grant and the pipeline writes them together, so they
+    # are expected to agree. When they do not, it means one was hand-edited
+    # without the other -- and the metadata file is the audit record, so it is
+    # the one that decides what the dashboard reports.
     if ctx.namespace.name in ctx.state.tenant_route_exceptions:
         return
 

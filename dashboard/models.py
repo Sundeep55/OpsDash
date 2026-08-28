@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.db import models
 from django.db.models import Q, Value
@@ -135,12 +135,132 @@ class NetworkPolicy(models.Model):
     proxy_enabled = models.BooleanField(default=False)
     s3_connection_enabled = models.BooleanField(default=False)
 
+
+class Capsule(models.Model):
+    """A capsule tenant: a delegated slice of a tenant with its own quota.
+
+    Named "Capsule" rather than "sub-tenant" on purpose. The pipeline calls the
+    field sub_tenant_name, and that is kept as the request field, but a UI and a
+    model that both say "tenant" and "sub tenant" collapse the moment anyone
+    speaks or filters on them. Capsule is distinct in a sentence and in a
+    queryset, and it is what the platform actually is.
+
+    A capsule owns namespaces that its users create themselves, drawing on the
+    shared quota below. Those namespaces are deliberately not tracked -- the
+    estate records the capsule and its quota, and the capsule's own users manage
+    what sits inside it.
+
+    Lives at the same path depth as a Namespace, under the same dcsc- prefix.
+    The only thing separating them is which provisioner block the values file
+    carries, which is why layout.capsule_key exists.
+    """
+    name = models.CharField(max_length=255, unique=True)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='capsules')
+    cluster = models.ForeignKey(Cluster, on_delete=models.CASCADE, related_name='capsules')
+
+    lifecycle = models.CharField(max_length=50, null=True, blank=True)
+    siglum = models.CharField(max_length=100, null=True, blank=True)
+    cost_center = models.CharField(max_length=100, null=True, blank=True)
+    requester = models.CharField(max_length=255, null=True, blank=True)
+    request_ticket = models.CharField(max_length=100, null=True, blank=True)
+    is_decommissioned = models.BooleanField(default=False)
+
+    # The shared quota. Stored verbatim as the repo writes it -- "16", "64Gi",
+    # "1000Mi" -- because guessing at units loses information, exactly as for
+    # namespace quotas.
+    quota_enabled = models.BooleanField(default=False)
+    limits_cpu = models.CharField(max_length=50, null=True, blank=True)
+    requests_cpu = models.CharField(max_length=50, null=True, blank=True)
+    limits_memory = models.CharField(max_length=50, null=True, blank=True)
+    requests_memory = models.CharField(max_length=50, null=True, blank=True)
+    requests_ephemeral_storage = models.CharField(max_length=50, null=True, blank=True)
+    requests_storage = models.CharField(max_length=50, null=True, blank=True)
+
+    harbor_enabled = models.BooleanField(default=False)
+    harbor_storage_quota_gb = models.IntegerField(default=0)
+    global_egress_ip_name = models.CharField(max_length=255, null=True, blank=True)
+
+    owners = models.JSONField(default=list, blank=True)
+    users = models.JSONField(default=list, blank=True)
+
+    # The whole provisioner block, verbatim, for the detail page.
+    #
+    # The columns above exist because something aggregates or lists on them --
+    # lifecycle counts, the quota column, the search. This holds everything else:
+    # limit ranges, retention policy, network policy, allowed flows, robot
+    # accounts. Modelling each as its own table would mean a migration every time
+    # the capsule chart grows a key, for data nothing queries and only one page
+    # renders. Read it, do not filter on it.
+    config = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def effective_siglum(self):
+        return self.siglum or self.tenant.siglum
+
+
 # NEW: Renamed from SandboxException
 class RouteException(models.Model):
     namespace = models.OneToOneField(Namespace, on_delete=models.CASCADE, related_name='route_exception')
     is_active = models.BooleanField(default=False)
     request_id = models.CharField(max_length=100, null=True, blank=True)
     granted_at = models.DateField(null=True, blank=True)
+    # The pipeline computes and records this (granted + 90 days) in
+    # tenant-metadata.yaml. It used to be discarded and the dashboard re-derived
+    # expiry from granted_at with a hardcoded 90, which silently disagreed with
+    # the repo the moment anyone extended a grant by hand.
+    expires_at = models.DateField(null=True, blank=True)
+
+    # Grants made before expires_at was stored have no date in the repo. The
+    # pipeline's own rule is granted + 90 days, so that is the fallback -- but
+    # only a fallback: a stored date always wins, or a hand-extended grant would
+    # still read as expired.
+    DEFAULT_TERM_DAYS = 90
+    # How much notice ops get before expiry. A month is enough to raise the
+    # renewal through ITSM.
+    WARNING_DAYS = 30
+
+    @property
+    def effective_expires_at(self):
+        if self.expires_at:
+            return self.expires_at
+        if self.granted_at:
+            return self.granted_at + timedelta(days=self.DEFAULT_TERM_DAYS)
+        return None
+
+    @property
+    def days_remaining(self):
+        expiry = self.effective_expires_at
+        return (expiry - date.today()).days if expiry else None
+
+    @property
+    def days_active(self):
+        return (date.today() - self.granted_at).days if self.granted_at else 0
+
+    @property
+    def status(self):
+        """inactive | active | expiring | expired.
+
+        Lives on the model rather than in a serializer because three things ask
+        the question -- the SPA, the flat product API, and anything wiring up
+        notifications -- and a second copy of the rule is how the dashboard came
+        to disagree with the repo in the first place.
+        """
+        if not self.is_active:
+            return 'inactive'
+        remaining = self.days_remaining
+        if remaining is None:
+            return 'active'
+        if remaining < 0:
+            return 'expired'
+        if remaining <= self.WARNING_DAYS:
+            return 'expiring'
+        return 'active'
 
 class HarborConfig(models.Model):
     namespace = models.OneToOneField(Namespace, on_delete=models.CASCADE, primary_key=True, related_name='harbor_config')
@@ -170,7 +290,17 @@ class RegistryMirror(models.Model):
     tag = models.CharField(max_length=100, null=True, blank=True)
 
 class CustomResource(models.Model):
-    namespace = models.ForeignKey(Namespace, on_delete=models.CASCADE, related_name='custom_resources')
+    # Belongs to exactly one of the two. Capsules have a templates/ directory
+    # like namespaces do, and before this their manifests were parsed and then
+    # silently dropped, because the parser had nowhere to attach them.
+    namespace = models.ForeignKey(
+        Namespace, on_delete=models.CASCADE, related_name='custom_resources',
+        null=True, blank=True,
+    )
+    capsule = models.ForeignKey(
+        'Capsule', on_delete=models.CASCADE, related_name='custom_resources',
+        null=True, blank=True,
+    )
     kind = models.CharField(max_length=100)
     name = models.CharField(max_length=255)
     content = models.TextField()

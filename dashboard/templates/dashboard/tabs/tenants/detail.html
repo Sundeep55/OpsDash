@@ -69,6 +69,7 @@
                 </a>
                 
                 <div class="flex flex-wrap items-center md:justify-end gap-1.5 flex-1">
+                    <span v-if="ns.is_decommissioned" class="badge badge-red !m-0">Decommissioned</span>
                     <span v-if="ns.is_cso" class="badge !bg-teal-100 !text-teal-800 !border-teal-200 !m-0">EGRESS</span>
                     <span v-else-if="ns.lifecycle && !ns.is_devspace" :class="['badge !m-0', ns.lifecycle.toLowerCase() === 'prod' ? 'badge-green' : 'badge-blue']">[[ ns.lifecycle.toUpperCase() ]]</span>
                     <span v-if="ns.is_devspace" class="badge badge-purple !m-0">DEVSPACE</span>
@@ -81,7 +82,12 @@
                     <span v-if="ns.templates?.length" title="Custom Resources" class="badge badge-slate !m-0 !px-1.5 !py-1 bg-white text-slate-700 font-bold"><svg class="w-3.5 h-3.5 mr-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>[[ ns.templates.length ]]</span>
                     
                     <!-- FIX: Updated Vue Bindings & Title to use routeException -->
-                    <span v-if="ns.routeException?.enabled" title="Route Exception Active" :class="['badge !m-0 !px-1.5 !py-1 text-white font-bold', ns.routeException.status === 'expired' ? 'bg-red-500 ring-red-600' : 'bg-orange-500 ring-orange-600']"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg></span>
+                    <span v-if="ns.routeException?.enabled" :title="ns.routeException.status === 'expired'
+                                ? `Route exception EXPIRED ${Math.abs(ns.routeException.daysRemaining)} day(s) ago`
+                                : (ns.routeException.status === 'expiring'
+                                    ? `Route exception expires in ${ns.routeException.daysRemaining} day(s)`
+                                    : 'Route exception active')" :class="['badge !m-0 !px-1.5 !py-1 text-white font-bold', ns.routeException.status === 'expired' ? 'bg-red-600 ring-red-700' : (ns.routeException.status === 'expiring' ? 'bg-amber-500 ring-amber-600' : 'bg-orange-500 ring-orange-600')]"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg></span>
+                    <span v-if="ns.harbor?.cveAllowlist?.length > 0" title="CVE Exception Active" class="badge !bg-orange-100 !text-orange-700 !border-orange-200 !m-0 !px-1.5 !py-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 8h3M6 8h3m6 4h3M6 12h3m6 4h3M6 16h3M10 8V4m4 4V4M9 8a3 3 0 016 0v8a3 3 0 01-6 0V8z"></path></svg></span>
                     
                     <template v-if="ns.operators">
                         <span v-for="(conf, opName) in ns.operators" :key="opName" v-show="conf.enabled" class="badge badge-slate !mb-0 !px-1.5 !py-1 bg-white shadow-sm" :title="`Operator: ${opName.replace('Operator', '')}`">

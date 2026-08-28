@@ -15,6 +15,7 @@ import { SiglumTree } from './components/SiglumTree.js';
 import { CopyButton } from './components/CopyButton.js';
 import { DetailSection } from './components/DetailSection.js';
 import { TableSkeleton } from './components/TableSkeleton.js';
+import { ExpiryBanner } from './components/ExpiryBanner.js';
 import { UI_CONFIG } from './ui_config.js';
 
 const { createApp, ref, computed, onMounted, onUnmounted, watch } = Vue;
@@ -27,7 +28,7 @@ const NO_FEATURES = {
 
 createApp({
     delimiters: ['[[', ']]'],
-    components: { SiglumTree, CopyButton, DetailSection, TableSkeleton },
+    components: { SiglumTree, CopyButton, DetailSection, TableSkeleton, ExpiryBanner },
 
     setup() {
         const portal = readPortalConfig();
@@ -41,7 +42,7 @@ createApp({
             tenant: '', tenantStatus: 'active', tenantCluster: ALL,
             namespace: '', namespaceStatus: 'active', namespaceCluster: ALL,
             nsFeatures: { ...NO_FEATURES },
-            user: '', siglum: '', request: '',
+            user: '', siglum: '', request: '', capsule: '',
         });
 
         const reloadOnExpiry = error => {
@@ -97,6 +98,18 @@ createApp({
             }),
         });
 
+        // A flat list, not paginated: capsules are counted in dozens, not
+        // hundreds -- a tenant has one or two, where it can have many namespaces.
+        const capsules = useSearchList({
+            endpoint: '/api/v2/capsules/',
+            initial: [],
+            onError,
+            buildParams: () => ({
+                search: search.value.capsule,
+                cluster: clusterParam(globalCluster.value),
+            }),
+        });
+
         const siglums = useSearchList({
             endpoint: '/api/v2/siglums/',
             initial: { siglums: [], namespaces: [], tenants: [] },
@@ -136,13 +149,41 @@ createApp({
         watch(() => [search.value.tenant, search.value.tenantCluster, search.value.tenantStatus],
             tenants.refresh);
         watch(() => search.value.user, users.refresh);
+        watch(() => search.value.capsule, capsules.refresh);
         watch(() => search.value.siglum, siglums.refresh);
         watch(() => search.value.request, requests.refresh);
 
         watch(globalCluster, () => {
             analytics.fetchAnalytics();
             users.fetchPage(1);
+            capsules.fetchData();
             siglums.fetchData();
+        });
+
+        /* The capsule's remaining provisioner blocks, ready to render.
+         *
+         * Formatted here rather than in the template because the shape is not
+         * known ahead of time: it is whatever the capsule chart carries. A short
+         * summary is derived per block so the page is scannable without opening
+         * every one. */
+        const capsuleConfigBlocks = computed(() => {
+            const cfg = selection.selected.value.capsule?.config;
+            if (!cfg) return [];
+            return Object.keys(cfg).sort().map(key => {
+                const value = cfg[key];
+                let summary = '';
+                if (Array.isArray(value)) {
+                    summary = value.length ? `${value.length} entr${value.length === 1 ? 'y' : 'ies'}` : 'empty';
+                } else if (value && typeof value === 'object') {
+                    const enabled = value.enabled ?? value.enable;
+                    const n = Object.keys(value).length;
+                    summary = enabled === undefined ? `${n} setting${n === 1 ? '' : 's'}`
+                                                    : (enabled ? 'enabled' : 'disabled');
+                } else {
+                    summary = String(value);
+                }
+                return { key, summary, pretty: JSON.stringify(value, null, 2) };
+            });
         });
 
         // ---------------------------------------------------------- navigation
@@ -206,6 +247,7 @@ createApp({
             namespaces.fetchPage(1);
             tenants.fetchPage(1);
             users.fetchPage(1);
+            capsules.fetchData();
             siglums.fetchData();
             requests.fetchData();
             sync.start();
@@ -245,6 +287,12 @@ createApp({
             fetchNamespacesList: namespaces.fetchPage, namespacesLoading: namespaces.isLoading,
             tenantsList: tenants.items, tenantPagination: tenants.pagination,
             fetchTenantsList: tenants.fetchPage, tenantsLoading: tenants.isLoading,
+            capsulesList: capsules.data, capsulesLoading: capsules.isLoading, capsuleConfigBlocks,
+            capsuleLifecycles: analytics.capsuleLifecycles,
+            capsuleTotal: computed(() => {
+                const c = analytics.capsuleLifecycles.value;
+                return (c.dev || 0) + (c.prod || 0) + (c.unassigned || 0);
+            }),
             usersList: users.items, userPagination: users.pagination,
             fetchUsersList: users.fetchPage, usersLoading: users.isLoading,
             filteredSiglumResults: siglums.data, allSiglumsList: computed(() => siglums.data.value?.siglums ?? []),

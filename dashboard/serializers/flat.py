@@ -65,10 +65,32 @@ class RouteExceptionFlatSerializer(serializers.ModelSerializer):
     namespace = serializers.CharField(source='namespace.name', read_only=True)
     tenant = serializers.CharField(source='namespace.tenant.name', read_only=True)
     cluster = serializers.CharField(source='namespace.cluster.name', read_only=True)
-    
+
+    # Additive, so existing consumers are unaffected. These exist so a notifier
+    # does not have to re-derive expiry from granted_at -- doing that in a second
+    # place is exactly how the dashboard came to disagree with the repo.
+    # `expires_at` is the date the repo recorded, or granted + 90 where the grant
+    # predates that field being stored.
+    expires_at = serializers.DateField(source='effective_expires_at', read_only=True)
+    days_remaining = serializers.IntegerField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    # Who to write to. Namespace owners first, falling back to the requester on
+    # the ticket, so a notification always has somewhere to go.
+    contacts = serializers.SerializerMethodField()
+
     class Meta:
         model = RouteException
-        fields = ['namespace', 'tenant', 'cluster', 'is_active', 'request_id', 'granted_at']
+        fields = [
+            'namespace', 'tenant', 'cluster', 'is_active', 'request_id',
+            'granted_at', 'expires_at', 'days_remaining', 'status', 'contacts',
+        ]
+
+    def get_contacts(self, obj):
+        owners = [ua.email for ua in obj.namespace.user_accesses.all() if ua.role == 'Owner']
+        if owners:
+            return owners
+        requester = getattr(obj.namespace.tenant, 'requester', None)
+        return [requester] if requester else []
 
 class SecurityPostureFlatSerializer(serializers.Serializer):
     namespace = serializers.CharField()

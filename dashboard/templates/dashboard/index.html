@@ -68,10 +68,18 @@
 
         {% include 'dashboard/components/warning.html' %}
 
+        {% comment %}
+          Route exceptions nearing or past expiry. Above the tabs on purpose: a
+          lapsed waiver is only a problem if nobody notices it, so it should not
+          live behind a tab someone has to choose.
+        {% endcomment %}
+        <expiry-banner v-if="hasData" :cluster="globalClusterFilter"></expiry-banner>
+
         <div v-if="hasData" class="transition-all duration-300">
             {% include 'dashboard/tabs/dashboard_tab.html' %}
             {% include 'dashboard/tabs/tenants_tab.html' %}
             {% include 'dashboard/tabs/namespaces_tab.html' %}
+            {% include 'dashboard/tabs/capsules_tab.html' %}
             {% include 'dashboard/tabs/users_tab.html' %}
             {% include 'dashboard/tabs/siglums_tab.html' %}
             {% include 'dashboard/tabs/requests_tab.html' %}

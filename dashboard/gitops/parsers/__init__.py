@@ -9,6 +9,7 @@ from typing import Optional
 
 from dashboard.models import Cluster, Namespace, Tenant
 
+from .capsule import is_capsule_payload, parse_capsule_values
 from .custom_resources import parse_templates
 from .helm import parse_chart
 from .provisioner import parse_namespace_values
@@ -20,6 +21,8 @@ __all__ = [
     'parse_chart',
     'parse_namespace_values',
     'parse_tenant_metadata',
+    'is_capsule_payload',
+    'parse_capsule_values',
 ]
 
 
@@ -32,4 +35,7 @@ class ParseContext:
     # typing.Optional, not `Namespace | None`: PEP 604 unions in an evaluated
     # annotation need Python 3.10, and this runs on 3.9.
     namespace: Optional[Namespace]
-    state: object  # SyncState; untyped here to avoid a circular import
+    #: Set instead of `namespace` when the file describes a capsule. The two are
+    #: mutually exclusive: a values file is one or the other.
+    capsule: Optional[object] = None
+    state: object = None  # SyncState; untyped here to avoid a circular import

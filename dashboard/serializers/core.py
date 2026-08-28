@@ -4,15 +4,13 @@ Split from the product serializers in flat.py because the two have different
 stability guarantees: these may change freely alongside the frontend, whereas
 the flat ones are a contract with other teams.
 """
-from datetime import date
-
 from django.db.models import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from dashboard.gitops.sections import auto_rendered_sections, describe
-from dashboard.models import Cluster, CustomResource, Namespace, Tenant
+from dashboard.models import Capsule, Cluster, CustomResource, Namespace, Tenant
 
 class _NamespaceFieldsMixin:
     """Method fields whose output is identical in the list and detail payloads."""
@@ -27,19 +25,14 @@ class _NamespaceFieldsMixin:
         if not re_obj or not re_obj.is_active:
             return {"enabled": False, "status": "inactive"}
 
-        status = "active"
-        days_active = 0
-        if re_obj.granted_at:
-            days_active = (date.today() - re_obj.granted_at).days
-            if days_active > 90:
-                status = "expired"
-
         return {
             "enabled": True,
-            "status": status,
+            "status": re_obj.status,
             "requestId": re_obj.request_id,
             "grantedAt": re_obj.granted_at,
-            "daysActive": days_active
+            "expiresAt": re_obj.effective_expires_at,
+            "daysActive": re_obj.days_active,
+            "daysRemaining": re_obj.days_remaining,
         }
 
     @extend_schema_field(OpenApiTypes.OBJECT)
@@ -320,3 +313,71 @@ class TenantDetailSerializer(TenantSerializer):
 class UserListSerializer(serializers.Serializer):
     email = serializers.CharField()
     access_count = serializers.IntegerField()
+
+
+class CapsuleSerializer(serializers.ModelSerializer):
+    """A capsule and the quota it shares across its own namespaces.
+
+    `quota` is nested rather than flattened because it is the point of a
+    capsule: every value is stored exactly as the repo writes it ("16", "64Gi",
+    "1000Mi"), since normalising them would lose the distinction between a
+    request and a limit expressed in different units.
+    """
+    tenant = serializers.CharField(source='tenant.name', read_only=True)
+    cluster = serializers.CharField(source='cluster.name', read_only=True)
+    siglum = serializers.SerializerMethodField()
+    quota = serializers.SerializerMethodField()
+    harbor = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Capsule
+        fields = [
+            'name', 'tenant', 'cluster', 'lifecycle', 'siglum', 'cost_center',
+            'requester', 'request_ticket', 'is_decommissioned',
+            'global_egress_ip_name', 'quota', 'harbor',
+        ]
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_siglum(self, obj):
+        return obj.effective_siglum
+
+    @extend_schema_field(OpenApiTypes.OBJECT)
+    def get_quota(self, obj):
+        return {
+            "enabled": obj.quota_enabled,
+            "limitsCpu": obj.limits_cpu,
+            "requestsCpu": obj.requests_cpu,
+            "limitsMemory": obj.limits_memory,
+            "requestsMemory": obj.requests_memory,
+            "requestsEphemeralStorage": obj.requests_ephemeral_storage,
+            "requestsStorage": obj.requests_storage,
+        }
+
+    @extend_schema_field(OpenApiTypes.OBJECT)
+    def get_harbor(self, obj):
+        return {"enable": obj.harbor_enabled, "storageQuota": obj.harbor_storage_quota_gb}
+
+
+class CapsuleDetailSerializer(CapsuleSerializer):
+    """Everything about one capsule, for the detail page.
+
+    `config` is the rest of the provisioner block verbatim -- limit ranges,
+    retention policy, network policy, allowed flows, robot accounts. The page
+    renders it generically, so a key added to the capsule chart shows up without
+    a dashboard change, which is the same bargain the namespace section registry
+    makes.
+    """
+    owners = serializers.ListField(child=serializers.CharField(), read_only=True)
+    users = serializers.ListField(child=serializers.CharField(), read_only=True)
+    templates = serializers.SerializerMethodField()
+    config = serializers.JSONField(read_only=True)
+
+    class Meta(CapsuleSerializer.Meta):
+        fields = CapsuleSerializer.Meta.fields + ['owners', 'users', 'templates', 'config']
+
+    @extend_schema_field(OpenApiTypes.ANY)
+    def get_templates(self, obj):
+        return [
+            {"kind": c.kind, "name": c.name, "content": c.content}
+            for c in obj.custom_resources.all()
+        ]

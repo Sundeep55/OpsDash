@@ -58,7 +58,11 @@ SPACING_PROPERTIES = {
     'm': ['margin'], 'mx': ['margin-inline'], 'my': ['margin-block'],
     'mt': ['margin-top'], 'mb': ['margin-bottom'],
     'ml': ['margin-inline-start'], 'mr': ['margin-inline-end'],
-    'gap': ['gap'], 'w': ['width'], 'h': ['height'],
+    'gap': ['gap'],
+    # Axis gaps. Missing until a recursive scan of static/js found DetailSection
+    # already using gap-y-5, which had been resolving to nothing.
+    'gap-x': ['column-gap'], 'gap-y': ['row-gap'],
+    'w': ['width'], 'h': ['height'],
 }
 
 BORDER_WIDTH = {
@@ -70,6 +74,12 @@ BORDER_WIDTH = {
 
 VARIANTS = {
     'hover': '&:hover { @media (hover: hover) { %s } }',
+    # Responsive variants. Breakpoints are Tailwind v4's defaults; they are
+    # nested inside the rule, which is how the vendored build writes them too.
+    'sm': '@media (width >= 40rem) { %s }',
+    'md': '@media (width >= 48rem) { %s }',
+    'lg': '@media (width >= 64rem) { %s }',
+    'xl': '@media (width >= 80rem) { %s }',
     'focus': '&:focus { %s }',
     'group-hover': '&:is(:where(.group):hover *) { @media (hover: hover) { %s } }',
     'disabled': '&:disabled { %s }',
@@ -118,8 +128,19 @@ class Compiler:
             props = BORDER_WIDTH[width.group(1)]
             return ' '.join(f'{p}: {width.group(2)}px;' for p in props)
 
-        # spacing on the --spacing scale, possibly negative: px-2, -mt-0.5
-        spacing = re.fullmatch(r'(-?)([a-z]{1,2})-(\d+(?:\.\d+)?)', base)
+        # grid-cols-N. Added because md:grid-cols-5 silently resolved to
+        # nothing: only the vendored build's grid-cols-4 existed, and the
+        # "does this look like a utility" filter below did not mention grid, so
+        # the missing class was skipped rather than reported.
+        cols = re.fullmatch(r'grid-cols-(\d+)', base)
+        if cols:
+            return f'grid-template-columns: repeat({cols.group(1)}, minmax(0, 1fr));'
+
+        # spacing on the --spacing scale, possibly negative: px-2, -mt-0.5,
+        # gap-y-0.5. The prefix alternation has to spell the gap forms out: the
+        # [a-z]{1,2} class cannot match 'gap', so gap utilities only ever worked
+        # when the vendored build happened to already contain them.
+        spacing = re.fullmatch(r'(-?)([a-z]{1,2}|gap(?:-[xy])?)-(\d+(?:\.\d+)?)', base)
         if spacing:
             sign, prefix, amount = spacing.groups()
             props = SPACING_PROPERTIES.get(prefix)
@@ -201,7 +222,11 @@ class Command(BaseCommand):
 
         sources = sorted(
             list((root / 'dashboard' / 'templates').rglob('*.html'))
-            + list((root / 'static' / 'js').glob('*.js'))
+            # rglob, not glob: components live in static/js/components/ and a
+            # non-recursive scan never saw them. Their classes only ever
+            # rendered because they happened to be used in a template too --
+            # a class unique to a component silently resolved to nothing.
+            + list((root / 'static' / 'js').rglob('*.js'))
         )
         sources = [p for p in sources if p.name != 'vue.global.js']
 
@@ -227,7 +252,7 @@ class Command(BaseCommand):
             if rule is None:
                 # Only report things that look like real utilities. Words such as
                 # 'active' or 'prod' appear inside :class expressions as values.
-                if re.match(r'!?(bg|text|border|ring|from|to|[pm][xytblr]?|gap|w|h)-', cls):
+                if re.match(r'!?([a-z]+:)?(bg|text|border|ring|from|to|[pm][xytblr]?|gap(-[xy])?|grid-cols|w|h)-', cls):
                     unsupported[cls] = used[cls]
                 continue
             rules.append(rule)

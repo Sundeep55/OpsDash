@@ -17,7 +17,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-from dashboard.models import Cluster, Namespace, Tenant
+from dashboard.models import Capsule, Cluster, Namespace, Tenant
 
 from .layout import layout
 
@@ -206,3 +206,47 @@ def read_text(path):
     except OSError:
         return None
     return content or None
+
+
+def ensure_capsule(location, state):
+    """Get-or-create the cluster, tenant and capsule a capsule file belongs to.
+
+    The namespace equivalent of this is ensure_records. Kept separate rather
+    than parameterised because the two diverge on the one point that matters: a
+    capsule directory must NOT produce a Namespace row. Both live at
+    <cluster>/<tenant>/<name>/values.yaml and both are named dcsc-*, so a shared
+    code path would have to be told which it is at every step anyway.
+
+    Returns (cluster, tenant, capsule).
+    """
+    cluster, _ = Cluster.objects.get_or_create(name=location.cluster_name)
+    tenant, _ = Tenant.objects.get_or_create(
+        name=location.tenant_name,
+        defaults={'cluster': cluster, 'is_decommissioned': location.is_tenant_decommissioned},
+    )
+    state.active_tenant_names.add(tenant.name)
+
+    capsule, _ = Capsule.objects.get_or_create(
+        name=location.namespace_name,
+        defaults={'tenant': tenant, 'cluster': cluster},
+    )
+    # Follow moves in Git, exactly as ensure_records does for namespaces.
+    changes = {}
+    if capsule.tenant_id != tenant.pk:
+        changes['tenant'] = tenant
+    if capsule.cluster_id != cluster.pk:
+        changes['cluster'] = cluster
+    if capsule.is_decommissioned != location.is_namespace_decommissioned:
+        changes['is_decommissioned'] = location.is_namespace_decommissioned
+    if changes:
+        for attribute, value in changes.items():
+            setattr(capsule, attribute, value)
+        capsule.save(update_fields=list(changes))
+
+    state.active_capsule_names.add(capsule.name)
+
+    # A directory that used to hold a namespace and now holds a capsule would
+    # otherwise leave the old namespace behind, counted in every total.
+    Namespace.objects.filter(name=capsule.name).delete()
+
+    return cluster, tenant, capsule

@@ -7,6 +7,8 @@ Re-exported here so `from dashboard.serializers import X` keeps working
 regardless of which module X lives in.
 """
 from .core import (
+    CapsuleDetailSerializer,
+    CapsuleSerializer,
     ClusterSerializer,
     NamespaceDetailSerializer,
     NamespaceListSerializer,
@@ -32,6 +34,8 @@ from .flat import (
 )
 
 __all__ = [
+    'CapsuleDetailSerializer',
+    'CapsuleSerializer',
     "ClusterSerializer",
     "DevSpaceFlatSerializer",
     "EgressRoutingFlatSerializer",

@@ -29,14 +29,19 @@ export function useAnalytics({ cluster, onError }) {
 
     const kpis = computed(() => {
         const k = analytics.value?.global_kpis;
-        if (!k) return { tenants: 0, namespaces: 0, cpu: '0', mem: '0' };
+        if (!k) return { tenants: 0, namespaces: 0, capsules: 0, cpu: '0', mem: '0' };
         return {
             tenants: k.tenants || 0,
             namespaces: k.namespaces || 0,
+            capsules: k.capsules || 0,
             cpu: (k.cpu_req || 0).toFixed(0),
             mem: (k.mem_req || 0).toFixed(0),
         };
     });
+
+    const capsuleLifecycles = computed(() =>
+        analytics.value?.capsule_lifecycles ?? { dev: 0, prod: 0, unassigned: 0}
+    );
 
     const lifecycles = computed(() =>
         analytics.value?.lifecycles ?? { dev: 0, prod: 0, devspace: 0, egress: 0, unassigned: 0 }
@@ -58,5 +63,5 @@ export function useAnalytics({ cluster, onError }) {
 
     const siglumTree = computed(() => analytics.value?.siglum_tree ?? {});
 
-    return { analytics, isLoading, fetchAnalytics, clusters, operators, kpis, lifecycles, perCluster, siglumTree };
+    return { analytics, isLoading, fetchAnalytics, clusters, operators, kpis, lifecycles, capsuleLifecycles, perCluster, siglumTree };
 }

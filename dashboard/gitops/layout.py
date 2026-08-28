@@ -26,6 +26,10 @@ class Layout:
     # --- top-level keys inside a namespace's values file ---------------------
     #: The main block: quotas, GPU, Harbor, network policy, operators, users.
     provisioner_key: str
+    #: A capsule's equivalent block. Capsules ("Capsule tenants") own a shared
+    #: resource quota that their own namespaces draw from; the estate does not
+    #: track those namespaces, only the capsule and its quota.
+    capsule_key: str
     #: Marks a namespace that provides egress IPs.
     egress_key: str
     #: Marks a namespace that is a service-mesh control plane.
@@ -56,6 +60,7 @@ class Layout:
 
 DEFAULTS = {
     'provisioner_key': 'namespace-provisioner',
+    'capsule_key': 'tenant-provisioner',
     'egress_key': 'egress',
     'service_mesh_key': 'service-mesh',
     'registry_config_key': 'registry-config',

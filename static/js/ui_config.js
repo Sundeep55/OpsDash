@@ -11,6 +11,7 @@ export const UI_CONFIG = {
         { id: 'dashboard', label: 'Dashboard' },
         { id: 'tenants', label: 'Tenants' },
         { id: 'namespaces', label: 'Namespaces' },
+        { id: 'capsules', label: 'Capsules' },
         { id: 'users', label: 'Users' },
         { id: 'siglums', label: 'Siglums' },
         { id: 'requests', label: 'Requests' }

@@ -1,0 +1,231 @@
+{% comment %}
+  One capsule in full.
+
+  Follows the same structure as tenants/detail.html and namespaces/detail.html
+  rather than inventing its own: same back link, same header block, same
+  bento-card / bento-header / bento-title / bento-body cards, same meta-label
+  for field names, same entity-link chips for anything that jumps elsewhere, and
+  the same requests/requests-style empty states.
+
+  The one thing shaped differently is the compute card, which reuses the
+  Requests/Limits split from the namespace page -- because for a capsule that
+  quota is the whole allocation its users draw on, not a per-namespace ceiling,
+  so the wording says so.
+{% endcomment %}
+<button @click="selected.capsule = null" class="group mb-6 text-sm font-semibold text-slate-500 hover:text-slate-900 flex items-center transition-colors">
+    <svg class="mr-2 h-4 w-4 text-slate-400 group-hover:text-slate-900" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+    Back to Directory
+</button>
+
+<div v-if="detailLoading" class="bento-card">
+    <div class="bento-body text-center py-10">
+        <p class="text-sm font-medium text-slate-400 italic">Loading capsule...</p>
+    </div>
+</div>
+
+<template v-else-if="selected.capsule">
+    <div class="mb-8">
+        <div class="flex items-start justify-between">
+            <div class="flex items-center gap-3 min-w-0">
+                <svg class="w-8 h-8 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight truncate">[[ selected.capsule.name ]]</h2>
+                <copy-button :value="selected.capsule.name" label="Copy capsule name"></copy-button>
+                <span class="badge !bg-amber-100 !text-amber-800 !border-amber-200 !m-0 mt-1">CAPSULE</span>
+                <span v-if="selected.capsule.is_decommissioned" class="badge badge-red !m-0 mt-1">DECOMMISSIONED</span>
+                <span v-else-if="selected.capsule.lifecycle" :class="['badge !m-0 mt-1', selected.capsule.lifecycle.toLowerCase() === 'prod' ? 'badge-green' : 'badge-blue']">[[ selected.capsule.lifecycle.toUpperCase() ]]</span>
+            </div>
+
+            <a v-if="gitBrowserUrl" :href="`${gitBrowserUrl}/${selected.capsule.cluster}/${selected.capsule.tenant}/${selected.capsule.name}`" target="_blank" class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                View in Git
+            </a>
+        </div>
+    </div>
+
+    <div class="bento-card mb-6">
+        <div class="bento-header"><h4 class="bento-title">Capsule Routing &amp; Ownership</h4></div>
+        <div class="bento-body grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div>
+                <span class="meta-label">Target Cluster</span>
+                <div class="text-sm font-mono font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded px-2 py-1 inline-flex items-center gap-1.5 shadow-sm">
+                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
+                    [[ selected.capsule.cluster ]]
+                </div>
+            </div>
+            <div>
+                <span class="meta-label">Parent Tenant</span>
+                <a @click="jumpTo('tenants', selected.capsule.tenant)" class="entity-link">
+                    <svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                    [[ selected.capsule.tenant ]]
+                </a>
+            </div>
+            <div>
+                <span class="meta-label">Siglum</span>
+                <a v-if="selected.capsule.siglum" @click="jumpTo('siglums', selected.capsule.siglum)" class="entity-link">
+                    <svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path></svg>
+                    [[ selected.capsule.siglum ]]
+                </a>
+                <p v-else class="text-sm font-medium text-slate-400 italic">Unassigned</p>
+            </div>
+            <div>
+                <span class="meta-label">ITSM Ticket</span>
+                <a v-if="selected.capsule.request_ticket" @click="jumpTo('requests', selected.capsule.request_ticket)" class="entity-link">
+                    <svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"></path></svg>
+                    [[ selected.capsule.request_ticket ]]
+                </a>
+                <p v-else class="text-sm font-medium text-slate-400 italic">Unlinked</p>
+            </div>
+            <div>
+                <span class="meta-label">Cost Centre</span>
+                <p v-if="selected.capsule.cost_center" class="text-sm font-mono font-bold text-slate-900">[[ selected.capsule.cost_center ]]</p>
+                <p v-else class="text-sm font-medium text-slate-400 italic">Non-billable</p>
+            </div>
+            <div>
+                <span class="meta-label">Requester</span>
+                <a v-if="selected.capsule.requester" @click="jumpTo('users', selected.capsule.requester)" class="entity-link">
+                    <svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                    [[ selected.capsule.requester ]]
+                </a>
+                <p v-else class="text-sm font-medium text-slate-400 italic">Unknown</p>
+            </div>
+            <div>
+                <span class="meta-label">Global EgressIP</span>
+                <p v-if="selected.capsule.global_egress_ip_name" class="text-sm font-mono font-bold text-slate-900">[[ selected.capsule.global_egress_ip_name ]]</p>
+                <p v-else class="text-sm font-medium text-slate-400 italic">None</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="space-y-6">
+            <div class="bento-card">
+                <div class="bento-header"><h4 class="bento-title">Shared Compute Quota</h4></div>
+                <div class="bento-body">
+                    <p class="text-xs text-slate-500 mb-5 leading-relaxed">
+                        The whole allocation for this capsule. Its users create their own namespaces
+                        against it, and those namespaces are not tracked here &mdash; so this is a
+                        ceiling, not a total of anything below it.
+                    </p>
+
+                    <div v-if="selected.capsule.quota?.enabled" class="space-y-6">
+                        <div>
+                            <span class="meta-label mb-2">CPU (Requests / Limits)</span>
+                            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 flex justify-between items-center">
+                                <div><p class="text-[10px] text-slate-500 uppercase font-semibold">Requests</p><p class="text-lg font-bold text-slate-900">[[ selected.capsule.quota.requestsCpu || '-' ]]</p></div>
+                                <div class="h-8 w-px bg-slate-200"></div>
+                                <div class="text-right"><p class="text-[10px] text-slate-500 uppercase font-semibold">Limits</p><p class="text-lg font-bold text-slate-900">[[ selected.capsule.quota.limitsCpu || '-' ]]</p></div>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="meta-label mb-2">Memory (Requests / Limits)</span>
+                            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 flex justify-between items-center">
+                                <div><p class="text-[10px] text-slate-500 uppercase font-semibold">Requests</p><p class="text-lg font-bold text-slate-900">[[ selected.capsule.quota.requestsMemory || '-' ]]</p></div>
+                                <div class="h-8 w-px bg-slate-200"></div>
+                                <div class="text-right"><p class="text-[10px] text-slate-500 uppercase font-semibold">Limits</p><p class="text-lg font-bold text-slate-900">[[ selected.capsule.quota.limitsMemory || '-' ]]</p></div>
+                            </div>
+                        </div>
+                        <div class="border-t border-slate-100 pt-5 grid grid-cols-2 gap-6">
+                            <div>
+                                <span class="meta-label">Storage Requested</span>
+                                <p class="text-sm font-bold text-slate-900">[[ selected.capsule.quota.requestsStorage || '-' ]]</p>
+                            </div>
+                            <div>
+                                <span class="meta-label">Ephemeral Storage</span>
+                                <p class="text-sm font-bold text-slate-900">[[ selected.capsule.quota.requestsEphemeralStorage || '-' ]]</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="flex flex-col items-center justify-center py-6 text-center">
+                        <svg class="w-8 h-8 text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <p class="text-sm font-medium text-slate-400 italic">No shared quota is set on this capsule.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bento-card">
+                <div class="bento-header"><h4 class="bento-title">Registry</h4></div>
+                <div class="bento-body">
+                    <div v-if="selected.capsule.harbor?.enable" class="grid grid-cols-2 gap-6">
+                        <div>
+                            <span class="meta-label">Harbor Project</span>
+                            <span class="badge badge-green !m-0">Enabled</span>
+                        </div>
+                        <div>
+                            <span class="meta-label">Storage Quota</span>
+                            <p class="text-sm font-bold text-slate-900">[[ selected.capsule.harbor.storageQuota ]] GB</p>
+                        </div>
+                    </div>
+                    <div v-else class="flex flex-col items-center justify-center py-6 text-center">
+                        <svg class="w-8 h-8 text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"></path></svg>
+                        <p class="text-sm font-medium text-slate-400 italic">No Harbor project for this capsule.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-6">
+            <div class="bento-card">
+                <div class="bento-header"><h4 class="bento-title">Capsule Access</h4></div>
+                <div class="bento-body space-y-4">
+                    <div>
+                        <span class="text-xs font-bold text-slate-700 block mb-2">Owners:</span>
+                        <div class="flex flex-wrap gap-2">
+                            <a v-for="u in selected.capsule.owners" :key="u" @click="jumpTo('users', u)" class="inline-flex items-center px-2.5 py-1 rounded bg-blue-50 text-xs font-bold text-blue-700 hover:bg-blue-100 cursor-pointer transition-colors shadow-sm ring-1 ring-inset ring-blue-200">
+                                <svg class="mr-1.5 h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>[[ u ]]
+                            </a>
+                            <span v-if="!selected.capsule.owners?.length" class="text-xs text-slate-400 italic">None configured</span>
+                        </div>
+                    </div>
+                    <div>
+                        <span class="text-xs font-bold text-slate-700 block mb-2">Users:</span>
+                        <div class="flex flex-wrap gap-2">
+                            <a v-for="u in selected.capsule.users" :key="u" @click="jumpTo('users', u)" class="inline-flex items-center px-2.5 py-1 rounded bg-slate-50 text-xs font-semibold text-slate-600 border border-slate-200 hover:bg-slate-100 cursor-pointer transition-colors shadow-sm">
+                                <svg class="mr-1.5 h-3.5 w-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>[[ u ]]
+                            </a>
+                            <span v-if="!selected.capsule.users?.length" class="text-xs text-slate-400 italic">None configured</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bento-card">
+                <div class="bento-header"><h4 class="bento-title">Chart Configuration</h4></div>
+                <div class="bento-body">
+                    <p class="text-xs text-slate-500 mb-4 leading-relaxed">
+                        The rest of the capsule's provisioner block as committed in Git. Rendered from
+                        whatever the chart carries, so a new setting appears here without a dashboard change.
+                    </p>
+                    <div v-if="capsuleConfigBlocks.length" class="space-y-2">
+                        <details v-for="b in capsuleConfigBlocks" :key="b.key" class="rounded-lg border border-slate-200 overflow-hidden">
+                            <summary class="cursor-pointer bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 select-none flex items-center justify-between gap-2">
+                                <span class="font-mono">[[ b.key ]]</span>
+                                <span class="font-semibold text-slate-400">[[ b.summary ]]</span>
+                            </summary>
+                            <pre class="text-xs p-3 overflow-x-auto bg-white text-slate-700 border-t border-slate-100">[[ b.pretty ]]</pre>
+                        </details>
+                    </div>
+                    <p v-else class="text-sm font-medium text-slate-400 italic">No additional configuration.</p>
+                </div>
+            </div>
+
+            <div class="bento-card">
+                <div class="bento-header"><h4 class="bento-title">Custom Resources</h4></div>
+                <div class="bento-body">
+                    <div v-if="selected.capsule.templates?.length" class="space-y-2">
+                        <details v-for="t in selected.capsule.templates" :key="t.kind + t.name" class="rounded-lg border border-slate-200 overflow-hidden">
+                            <summary class="cursor-pointer bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 select-none flex items-center gap-2">
+                                <span class="badge badge-slate !m-0 bg-white">[[ t.kind ]]</span>
+                                <span class="font-mono">[[ t.name ]]</span>
+                            </summary>
+                            <pre class="text-xs p-3 overflow-x-auto bg-white text-slate-700 border-t border-slate-100">[[ t.content ]]</pre>
+                        </details>
+                    </div>
+                    <div v-else class="flex flex-col items-center justify-center py-6 text-center">
+                        <svg class="w-8 h-8 text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                        <p class="text-sm font-medium text-slate-400 italic">No manifests committed under templates/.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>

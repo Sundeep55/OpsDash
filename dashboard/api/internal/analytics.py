@@ -17,7 +17,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from dashboard.api.filters import parse_cpu, parse_mem_gi
-from dashboard.models import HelmDeployment, Namespace, Operator, Tenant
+from dashboard.models import Capsule, HelmDeployment, Namespace, Operator, Tenant
 
 # Columns pulled per active namespace. Kept as a tuple so the unpack below
 # cannot drift from the query.
@@ -39,6 +39,11 @@ NAMESPACE_COLUMNS = (
 def _empty_cluster_resources():
     return {
         "cpu_req": 0, "cpu_limit": 0, "mem_req": 0, "mem_limit": 0,
+        # Capsules are counted, not resource-summed: their quota is shared
+        # across namespaces the estate does not track, so adding it to the
+        # namespace totals would double-count against the same allocation.
+        "capsules": 0,
+        "capsule_lifecycles": {"dev": 0, "prod": 0, "unassigned": 0},
         "lifecycles": {"dev": 0, "prod": 0, "devspace": 0, "egress": 0, "unassigned": 0, "total": 0},
         "operators": collections.defaultdict(int),
         "charts": collections.defaultdict(int),
@@ -99,23 +104,43 @@ class GlobalAnalyticsView(APIView):
 
         namespaces = Namespace.objects.filter(is_decommissioned=False)
         tenants = Tenant.objects.filter(is_decommissioned=False)
+        capsules = Capsule.objects.filter(is_decommissioned=False)
         if scoped:
             namespaces = namespaces.filter(cluster__name=cluster)
             tenants = tenants.filter(cluster__name=cluster)
+            capsules = capsules.filter(cluster__name=cluster)
 
         analytics = {
             "global_kpis": {
                 "tenants": tenants.count(),
                 "namespaces": namespaces.count(),
+                "capsules": capsules.count(),
                 "cpu_req": 0,
                 "mem_req": 0,
             },
             "lifecycles": {"dev": 0, "prod": 0, "devspace": 0, "egress": 0, "unassigned": 0},
+            "capsule_lifecycles": {"dev": 0, "prod": 0, "unassigned": 0},
             "operators": collections.defaultdict(int),
             "chart_usage": collections.defaultdict(int),
             "cluster_resources": collections.defaultdict(_empty_cluster_resources),
             "siglum_tree": {},
         }
+
+        # Capsules are their own kind of instance and are classified like
+        # namespaces are, so "how much prod is out there" counts both. They are
+        # kept in a separate breakdown rather than folded into `lifecycles`,
+        # because that one is a namespace count that several views total against
+        # -- adding capsules to it would silently change every one of them.
+        for cluster_name, lifecycle, total in (
+            capsules.values_list('cluster__name', 'lifecycle').annotate(total=Count('id'))
+        ):
+            bucket = (lifecycle or '').strip().lower() or 'unassigned'
+            if bucket not in ('dev', 'prod'):
+                bucket = 'unassigned'
+            per_cluster = analytics["cluster_resources"][cluster_name]
+            per_cluster["capsules"] += total
+            per_cluster["capsule_lifecycles"][bucket] += total
+            analytics["capsule_lifecycles"][bucket] += total
 
         for row in namespaces.values_list(*NAMESPACE_COLUMNS).iterator():
             (cluster_name, tenant_name, ns_siglum, tenant_siglum, lifecycle,

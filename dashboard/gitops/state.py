@@ -15,6 +15,20 @@ class SyncState:
     active_operator_ids: set = field(default_factory=set)
     active_namespace_names: set = field(default_factory=set)
     active_tenant_names: set = field(default_factory=set)
+    #: (cluster, tenant, name) of every directory identified as a capsule in the
+    #: first pass. Directory-level, because a capsule's Chart.yaml and templates/
+    #: carry nothing that identifies them.
+    capsule_dirs: set = field(default_factory=set)
+    #: Capsule fields that only tenant-metadata.yaml knows (ticket, requester,
+    #: lifecycle), keyed by capsule name. Deferred rather than applied inline
+    #: because file order is arbitrary: the metadata file is frequently read
+    #: before the capsule's own values.yaml has created the row, and an
+    #: order-dependent write silently loses the ticket.
+    capsule_metadata: dict = field(default_factory=dict)
+    #: Capsules seen this run. Tracked separately from namespaces because they
+    #: are a different model living at the same path depth -- a capsule must not
+    #: keep a same-named namespace alive, nor be pruned by the namespace sweep.
+    active_capsule_names: set = field(default_factory=set)
 
     # namespace name -> (cluster, tenant) that claimed it during this run.
     # Namespace and tenant names are globally unique by convention, and the

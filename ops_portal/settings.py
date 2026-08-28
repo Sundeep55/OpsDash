@@ -153,6 +153,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 GITOPS_LAYOUT = {
     # Top-level keys inside a namespace's values file.
     'provisioner_key': os.environ.get('GITOPS_PROVISIONER_KEY', 'namespace-provisioner'),
+    # A capsule's values file carries this block where a namespace carries
+    # provisioner_key. It is the only thing that tells the two apart: both sit at
+    # <cluster>/<tenant>/<name>/values.yaml and both are named dcsc-*.
+    'capsule_key': os.environ.get('GITOPS_CAPSULE_KEY', 'tenant-provisioner'),
     'egress_key': os.environ.get('GITOPS_EGRESS_KEY', 'egress'),
     'service_mesh_key': os.environ.get('GITOPS_SERVICE_MESH_KEY', 'service-mesh'),
     'registry_config_key': os.environ.get('GITOPS_REGISTRY_CONFIG_KEY', 'registry-config'),

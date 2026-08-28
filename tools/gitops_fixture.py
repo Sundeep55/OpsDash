@@ -18,10 +18,10 @@ tenant_request_ticket: REQ-0001
 active_namespaces:
   - name: alpha-prod
     namespace_request_ticket: REQ-0002
-    lifecycle: PROD
+    dcs.example.com/lifecycle: PROD
   - name: alpha-dev
     req_id: REQ-0003
-    lifecycle: dev
+    dcs.example.com/lifecycle: dev
     security_exception:
       request_ticket: SEC-0001
       granted_at: 2025-01-15
@@ -39,10 +39,10 @@ active_registry_mirrors:
 FILES["cluster-a/tenant-alpha/alpha-prod/values.yaml"] = """
 namespace-provisioner:
   requiredLabels:
-    lifecycle: prod
+    dcs.example.com/lifecycle: prod
     siglum: ABXYZ
   additionalLabels:
-    egressip_name: router-a
+    dcs.example.com/egressip_name: router-a
   devspaceConfig:
     isDevspace: false
   allowedFlows:
@@ -163,7 +163,7 @@ dependencies:
 FILES["cluster-a/tenant-alpha/.decommissioned_namespaces/alpha-old_20240101/values.yaml"] = """
 namespace-provisioner:
   requiredLabels:
-    lifecycle: prod
+    dcs.example.com/lifecycle: prod
 """
 
 # ---------------------------------------------------------------- cluster-a: CSO / egress tenant
@@ -175,7 +175,7 @@ requester: erin@example.com
 FILES["cluster-a/tenant-egress/egress-hub/values.yaml"] = """
 egress:
   requiredLabels:
-    lifecycle: prod
+    dcs.example.com/lifecycle: prod
     siglum: ABCSO
   egressIPResources:
     - name: router-a
@@ -204,14 +204,14 @@ billing_code: CC-3003
 requester: frank@example.com
 active_namespaces:
   - name: beta-mesh-cp
-    lifecycle: prod
+    dcs.example.com/lifecycle: prod
   - name: beta-mesh-dp
-    lifecycle: prod
+    dcs.example.com/lifecycle: prod
 """
 FILES["cluster-b/tenant-beta/beta-mesh-cp/values.yaml"] = """
 namespace-provisioner:
   requiredLabels:
-    lifecycle: prod
+    dcs.example.com/lifecycle: prod
     siglum: BCDEF
   resourceQuota:
     enabled: true
@@ -245,7 +245,7 @@ dependencies:
 FILES["cluster-b/tenant-beta/beta-mesh-dp/values.yaml"] = """
 namespace-provisioner:
   requiredLabels:
-    lifecycle: prod
+    dcs.example.com/lifecycle: prod
 """
 
 # GPU-requesting namespace: gpuConfig as it appears in the real repo, including
@@ -253,7 +253,7 @@ namespace-provisioner:
 FILES["cluster-b/tenant-beta/beta-gpu/values.yaml"] = """
 namespace-provisioner:
   requiredLabels:
-    lifecycle: prod
+    dcs.example.com/lifecycle: prod
   resourceQuota:
     enabled: true
     requestsCpu: "8"
@@ -275,7 +275,7 @@ namespace-provisioner:
 FILES["cluster-a/tenant-alpha/alpha-nogpu/values.yaml"] = """
 namespace-provisioner:
   requiredLabels:
-    lifecycle: dev
+    dcs.example.com/lifecycle: dev
   gpuConfig:
     enabled: false
     type: "shared"
@@ -286,14 +286,14 @@ namespace-provisioner:
 FILES["cluster-b/tenant-orphan/orphan-ns/values.yaml"] = """
 namespace-provisioner:
   requiredLabels:
-    lifecycle: staging
+    dcs.example.com/lifecycle: staging
 """
 
 # ---------------------------------------------------------------- decommissioned tenant
 FILES["cluster-b/.decommissioned_tenants/tenant-gone/gone-ns/values.yaml"] = """
 namespace-provisioner:
   requiredLabels:
-    lifecycle: prod
+    dcs.example.com/lifecycle: prod
 """
 FILES["cluster-b/.decommissioned_tenants/tenant-gone/tenant-metadata.yaml"] = """
 siglum: BCGONE

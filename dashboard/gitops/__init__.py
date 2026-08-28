@@ -16,8 +16,8 @@ from django.db import transaction
 from . import walker
 from .layout import layout
 from .parsers import (
-    ParseContext, parse_chart, parse_namespace_values, parse_tenant_metadata,
-    parse_templates,
+    ParseContext, is_capsule_payload, parse_capsule_values, parse_chart,
+    parse_namespace_values, parse_tenant_metadata, parse_templates,
 )
 from .reconciler import prune
 from .state import SyncState
@@ -43,20 +43,43 @@ def _process_file(location, content, state):
     import yaml  # local: keeps module import cheap for callers that only need types
 
     with transaction.atomic():
-        cluster, tenant, namespace = walker.ensure_records(location, state)
-        ctx = ParseContext(cluster=cluster, tenant=tenant, namespace=namespace, state=state)
+        names = layout()
+
+        # A capsule and a namespace are indistinguishable by path -- same depth,
+        # same dcsc- prefix -- so the first pass decided, per directory, which
+        # this is. Consulting that set rather than the file means a capsule's
+        # Chart.yaml and templates/ are handled as the capsule's, instead of
+        # falling through and creating a Namespace named after it.
+        is_capsule_dir = (location.cluster_name, location.tenant_name,
+                          location.namespace_name) in state.capsule_dirs
+
+        if is_capsule_dir:
+            cluster, tenant, capsule = walker.ensure_capsule(location, state)
+            ctx = ParseContext(cluster=cluster, tenant=tenant, namespace=None,
+                               capsule=capsule, state=state)
+            if location.is_template:
+                parse_templates(content, ctx)
+                return
+            payload = yaml.safe_load(content)
+            if payload and location.filename != names.chart_file:
+                parse_capsule_values(payload, ctx)
+            return
 
         # templates/ holds raw manifests, possibly several per file, and is never
         # a config document -- so it is handled before anything is parsed as one.
         if location.is_template:
-            parse_templates(content, ctx)
+            cluster, tenant, namespace = walker.ensure_records(location, state)
+            parse_templates(content, ParseContext(
+                cluster=cluster, tenant=tenant, namespace=namespace, state=state))
             return
 
         payload = yaml.safe_load(content)
         if not payload:
             return
 
-        names = layout()
+        cluster, tenant, namespace = walker.ensure_records(location, state)
+        ctx = ParseContext(cluster=cluster, tenant=tenant, namespace=namespace, state=state)
+
         if location.filename == names.tenant_metadata_file:
             parse_tenant_metadata(payload, ctx)
         elif location.filename == names.chart_file:
@@ -80,6 +103,13 @@ def run_sync(repo_path, report=None, log=None):
 
     state = SyncState()
 
+    # Which directories are capsules has to be known before any file in them is
+    # processed. A capsule's Chart.yaml and templates/ carry no capsule key, so
+    # deciding per file let them fall through and create a phantom Namespace
+    # named after the capsule -- one that reappeared on the next sync whenever
+    # Chart.yaml happened to be read after values.yaml.
+    _identify_capsules(repo_path, state)
+
     for location in walker.iter_locations(repo_path):
         content = walker.read_text(location.full_path)
         if content is None:
@@ -98,11 +128,59 @@ def run_sync(repo_path, report=None, log=None):
             logger.warning("Failed to process %s: %s", location.full_path, exc)
             _log(f"Failed to process content of {location.full_path}: {exc}")
 
+    _apply_capsule_metadata(state)
+
     result = prune(state)
     if result.total:
         _log(f"Pruned stale records: {result}")
 
     return len(state.configured_namespaces), result
+
+
+def _identify_capsules(repo_path, state):
+    """First pass: note every directory whose values file describes a capsule.
+
+    Only values files are opened, and only far enough to read their top-level
+    keys, so this costs one extra read of one file per namespace -- not a second
+    full parse of the tree.
+    """
+    import yaml
+
+    names = layout()
+    for location in walker.iter_locations(repo_path):
+        if location.namespace_name is None or location.is_template:
+            continue
+        if location.filename in (names.tenant_metadata_file, names.chart_file):
+            continue
+
+        content = walker.read_text(location.full_path)
+        if content is None:
+            continue
+        try:
+            payload = yaml.safe_load(content)
+        except Exception:
+            # A malformed file is reported properly on the real pass; here it
+            # simply is not a capsule.
+            continue
+        if is_capsule_payload(payload):
+            state.capsule_dirs.add((location.cluster_name, location.tenant_name,
+                                    location.namespace_name))
+
+
+def _apply_capsule_metadata(state):
+    """Write the tenant-metadata fields for capsules that actually exist.
+
+    Deferred to here because file order is arbitrary: tenant-metadata.yaml is
+    routinely read before the capsule's values.yaml has created the row, and
+    writing inline silently dropped the request ticket. Capsules absent from the
+    tree are skipped, so a stale metadata entry cannot resurrect one.
+    """
+    from dashboard.models import Capsule
+
+    for name, fields in state.capsule_metadata.items():
+        if name not in state.active_capsule_names:
+            continue
+        Capsule.objects.filter(name=name).update(**fields)
 
 
 def sync_repository(local_path, report=None, log=None):

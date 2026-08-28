@@ -16,7 +16,8 @@ def parse_templates(content, ctx):
     Documents without both a kind and metadata are not Kubernetes objects and
     are skipped.
     """
-    if ctx.namespace is None:
+    owner = ctx.namespace or getattr(ctx, 'capsule', None)
+    if owner is None:
         return
 
     for doc in yaml.safe_load_all(content):
@@ -25,6 +26,7 @@ def parse_templates(content, ctx):
 
         cr, _ = CustomResource.objects.update_or_create(
             namespace=ctx.namespace,
+            capsule=getattr(ctx, 'capsule', None),
             kind=doc['kind'],
             name=doc['metadata'].get('name', 'unknown'),
             defaults={'content': yaml.dump(doc, default_flow_style=False)},

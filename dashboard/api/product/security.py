@@ -36,10 +36,25 @@ class SecurityRouteExceptionApiView(generics.ListAPIView):
 
     def get_queryset(self):
         cluster = self.request.query_params.get('cluster')
-        qs = RouteException.objects.filter(is_active=True).select_related('namespace', 'namespace__tenant', 'namespace__cluster')
+        qs = (RouteException.objects
+              .filter(is_active=True)
+              .select_related('namespace', 'namespace__tenant', 'namespace__cluster')
+              # contacts reads the owners off each namespace; without this the
+              # endpoint runs one query per exception.
+              .prefetch_related('namespace__user_accesses'))
         if cluster and cluster != 'All':
             qs = qs.filter(namespace__cluster__name=cluster)
-        return qs.order_by('-granted_at')
+
+        # `status` lets a notifier ask for exactly what it needs -- typically
+        # ?status=expiring for the reminder mail and ?status=expired for the
+        # escalation. Filtered in Python because expiry is a derived property,
+        # and the set is small (one row per exception, not per namespace).
+        wanted = self.request.query_params.get('status')
+        qs = qs.order_by('-granted_at')
+        if wanted and wanted != 'All':
+            allowed = {w.strip() for w in wanted.split(',')}
+            return [r for r in qs if r.status in allowed]
+        return qs
 
 
 class SecurityPostureApiView(APIView):

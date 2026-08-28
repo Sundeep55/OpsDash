@@ -8,10 +8,11 @@ const DETAIL_ENDPOINTS = {
     tenant: id => [`/api/v2/tenants/${encodeURIComponent(id)}/`, null],
     namespace: id => [`/api/v2/namespaces/${encodeURIComponent(id)}/`, null],
     user: (id, cluster) => [`/api/v2/users/${encodeURIComponent(id)}/`, { cluster: clusterParam(cluster) }],
+    capsule: id => [`/api/v2/capsules/${encodeURIComponent(id)}/`, null],
 };
 
 /** Tab -> the `selected` key it owns, so switching tabs can clear it. */
-export const TAB_ENTITY = { tenants: 'tenant', namespaces: 'namespace', users: 'user' };
+export const TAB_ENTITY = { tenants: 'tenant', namespaces: 'namespace', users: 'user', capsules: 'capsule' };
 
 /**
  * The currently opened detail record per entity.
@@ -21,7 +22,7 @@ export const TAB_ENTITY = { tenants: 'tenant', namespaces: 'namespace', users: '
  * mis-click on the wrong row.
  */
 export function useSelection({ cluster, onError }) {
-    const selected = ref({ tenant: null, namespace: null, user: null });
+    const selected = ref({ tenant: null, namespace: null, user: null, capsule: null });
     const isLoading = ref(false);
 
     const select = async (type, id) => {
