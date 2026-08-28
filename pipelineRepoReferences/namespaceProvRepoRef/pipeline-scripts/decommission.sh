@@ -1,15 +1,4 @@
 #!/bin/bash
-# =============================================================================
-# decommission.sh
-#
-# Decommissions a namespace or a tenant EgressIP cluster-scope object, chosen by
-# OPERATION via INPUT_DECOMMISSION_CSO.
-#
-# As with scaffold-namespace.sh, the opening validate_inputs is gone: presence,
-# format and case now come from request-schema.yaml via load-payload.sh. Note
-# that a decommission request no longer asks for a cost centre — the old
-# validate_inputs demanded one and then never used it.
-# =============================================================================
 set -e
 
 _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,12 +11,13 @@ function prepare_variables() {
     echo "==========================================================================="
     log_info "Preparing Variables..."
 
-    # Case folding is done by the schema (`normalise: lower`). What stays here is
-    # the semantic part: a namespace is addressed with or without its dcsc-
-    # prefix and both must resolve to the same directory.
     TENANT_NAME="$INPUT_TENANT_NAME"
 
-    if [[ "$INPUT_NAMESPACE_NAME" == dcsc-* ]]; then
+    INPUT_DECOMMISSION_SUB_TENANT="${INPUT_DECOMMISSION_SUB_TENANT:-false}"
+
+    if [[ "${INPUT_DECOMMISSION_SUB_TENANT,,}" == "true" ]]; then
+        TENANT_PROJECT="$INPUT_SUB_TENANT"
+    elif [[ "$INPUT_NAMESPACE_NAME" == dcsc-* ]]; then
         TENANT_PROJECT="$INPUT_NAMESPACE_NAME"
     else
         TENANT_PROJECT="dcsc-$INPUT_NAMESPACE_NAME"
@@ -107,11 +97,20 @@ function sanity_checks() {
           exit 1
       fi
 
-      # Check if namespace is active
-      IS_ACTIVE=$(yq ".active_namespaces[] | select(.name == \"$TENANT_PROJECT\") | .name" "$TENANT_METADATA_FILE")
-      if [ -z "$IS_ACTIVE" ]; then
-          log_error "Namespace '$TENANT_PROJECT' is not listed in active_namespaces."
-          exit 1
+      if [[ "${INPUT_DECOMMISSION_SUB_TENANT,,}" == "true" ]]; then
+        # Check if sub-tenant is active
+        IS_ACTIVE=$(yq ".active_sub_tenants[] | select(.name == \"$TENANT_PROJECT\") | .name" "$TENANT_METADATA_FILE")
+        if [ -z "$IS_ACTIVE" ]; then
+            log_error "Sub-tenant '$TENANT_PROJECT' is not listed in active_sub_tenants."
+            exit 1
+        fi
+      else
+        # Check if namespace is active
+        IS_ACTIVE=$(yq ".active_namespaces[] | select(.name == \"$TENANT_PROJECT\") | .name" "$TENANT_METADATA_FILE")
+        if [ -z "$IS_ACTIVE" ]; then
+            log_error "Namespace '$TENANT_PROJECT' is not listed in active_namespaces."
+            exit 1
+        fi
       fi
 
     fi
@@ -142,29 +141,43 @@ function update_metadata() {
         del(.active_cso[] | select(.name == strenv(TENANT_PROJECT)))
       ' "$TENANT_METADATA_FILE"
     else
-      yq -i '
-        (.active_namespaces[] | select(.name == strenv(TENANT_PROJECT))) as $item |
-        
-        $item.namespace_decommission_request_ticket = strenv(INPUT_REQUEST_ID) |
-        $item.decommission_requested_timestamp = strenv(REQUESTED_TIMESTAMP) |
-        $item.decommissioned_timestamp = strenv(DECOMMISSION_TIMESTAMP) |
-  
-        .decommissioned_namespaces += [$item] |
-  
-        del(.active_namespaces[] | select(.name == strenv(TENANT_PROJECT)))
-      ' "$TENANT_METADATA_FILE"
+      if [[ "${INPUT_DECOMMISSION_SUB_TENANT,,}" == "true" ]]; then
+        yq -i '
+          (.active_sub_tenants[] | select(.name == strenv(TENANT_PROJECT))) as $item |
 
-      # Move any active_registry_mirrors for this namespace to decommissioned_registry_mirrors
-      log_info "Checking for active registry mirrors in namespace $TENANT_PROJECT..."
-      yq -i '
-        [.active_registry_mirrors[] | select(.namespace == strenv(TENANT_PROJECT)) | . + {
-          "namespace_decommission_request_ticket": strenv(INPUT_REQUEST_ID),
-          "decommission_requested_timestamp": strenv(REQUESTED_TIMESTAMP),
-          "decommissioned_timestamp": strenv(DECOMMISSION_TIMESTAMP)
-        }] as $items |
-        .decommissioned_registry_mirrors += $items |
-        del(.active_registry_mirrors[] | select(.namespace == strenv(TENANT_PROJECT)))
-      ' "$TENANT_METADATA_FILE"
+          $item.namespace_decommission_request_ticket = strenv(INPUT_REQUEST_ID) |
+          $item.decommission_requested_timestamp = strenv(REQUESTED_TIMESTAMP) |
+          $item.decommissioned_timestamp = strenv(DECOMMISSION_TIMESTAMP) |
+
+          .decommissioned_sub_tenants += [$item] |
+
+          del(.active_sub_tenants[] | select(.name == strenv(TENANT_PROJECT)))
+        ' "$TENANT_METADATA_FILE"
+      else
+        yq -i '
+          (.active_namespaces[] | select(.name == strenv(TENANT_PROJECT))) as $item |
+
+          $item.namespace_decommission_request_ticket = strenv(INPUT_REQUEST_ID) |
+          $item.decommission_requested_timestamp = strenv(REQUESTED_TIMESTAMP) |
+          $item.decommissioned_timestamp = strenv(DECOMMISSION_TIMESTAMP) |
+
+          .decommissioned_namespaces += [$item] |
+
+          del(.active_namespaces[] | select(.name == strenv(TENANT_PROJECT)))
+        ' "$TENANT_METADATA_FILE"
+
+        # Move any active_registry_mirrors for this namespace to decommissioned_registry_mirrors
+        log_info "Checking for active registry mirrors in namespace $TENANT_PROJECT..."
+        yq -i '
+          [.active_registry_mirrors[] | select(.namespace == strenv(TENANT_PROJECT)) | . + {
+            "namespace_decommission_request_ticket": strenv(INPUT_REQUEST_ID),
+            "decommission_requested_timestamp": strenv(REQUESTED_TIMESTAMP),
+            "decommissioned_timestamp": strenv(DECOMMISSION_TIMESTAMP)
+          }] as $items |
+          .decommissioned_registry_mirrors += $items |
+          del(.active_registry_mirrors[] | select(.namespace == strenv(TENANT_PROJECT)))
+        ' "$TENANT_METADATA_FILE"
+      fi
     fi
 
     log_info "Metadata updated."
@@ -197,11 +210,6 @@ function perform_decommission() {
     log_info "Checking active namespaces count..."
     
     ACTIVE_NS_COUNT=$(yq '.active_namespaces | length' "$TENANT_METADATA_FILE")
-    # NOTE: nothing in this repo ever writes .active_sub_tenants, so this term is
-    # always 0 today (yq gives length 0 for a missing key, so the arithmetic is
-    # safe). Left in place because removing it would change behaviour the day
-    # sub-tenants are introduced -- but be aware that "the tenant still has
-    # something active" currently means "it still has namespaces", nothing more.
     ACTIVE_TNT_COUNT=$(yq '.active_sub_tenants | length' "$TENANT_METADATA_FILE")
     ACTIVE_COUNT=$(($ACTIVE_NS_COUNT + $ACTIVE_TNT_COUNT))
     log_info "Remaining Active Namespaces: $ACTIVE_COUNT"
@@ -306,11 +314,6 @@ function run_git_ops() {
     git config --global user.name "${GITLAB_USER_NAME}"
     git checkout -b "$NEW_BRANCH_NAME"
     git add "$CLUSTER_DIR"
-    # BUG FIX. This was unconditional. Under `set -e`, a cluster with no
-    # egressip-pool.yaml failed here -- after perform_decommission had already
-    # deleted directories from the working tree. Nothing was pushed so it was
-    # recoverable, but the operator saw a red pipeline on a job that had done
-    # most of its work. scaffold-namespace.sh already guards the same add.
     if [ -f "$IPPOOL_FILE" ]; then
         git add "$IPPOOL_FILE"
     fi
