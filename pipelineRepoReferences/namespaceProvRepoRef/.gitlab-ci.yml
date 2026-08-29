@@ -113,7 +113,14 @@ validate-schema:
   script:
     - chmod +x ./tools/*.sh
     - ./tools/check-schema-drift.sh
-    - ./tools/test-cases.sh
+    # ./tools/test-cases.sh is deliberately NOT run here.
+    #
+    # It is a local tool: run it by hand while changing the schema, the shim or
+    # the form, where a failure is something you are about to fix anyway. In CI
+    # it blocked merges on the environment rather than on the change, so it is
+    # kept out of the pipeline on purpose -- not forgotten.
+    #
+    #   ./tools/test-cases.sh        # 39 cases through the shim
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
@@ -121,6 +128,21 @@ validate-schema:
         - pipeline-scripts/**/*
         - pages/**/*
         - tools/**/*
+
+# Egress IPs are allocated by reading the pool on a branch and merging days
+# later, so two requests can hand out the same address. Git only notices when
+# both edits land on the same lines. This makes the general case loud and
+# unmergeable; see the header of the script.
+validate-ip-allocation:
+  stage: validate
+  extends: .base-job
+  script:
+    - chmod +x ./tools/*.sh
+    - ./tools/validate-ip-allocation.sh
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - "*/egressip-pool.yaml"
 
 scaffold-namespace:
   stage: scaffold

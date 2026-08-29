@@ -303,6 +303,23 @@ function perform_decommission_cso() {
 
     if [ ! "$ACTIVE_COUNT" -gt 0 ]; then
       log_info "No active tenant CSO(cluster scope object)  left. Decommissioning CSO Project $PROJECT_DIR_CSO"
+
+      # Archive the values file before removing the directory.
+      #
+      # validate_prerequisites already refuses to run when this file is missing,
+      # with the message "Cannot capture state before decommissioning" -- but
+      # nothing then captured it. The rm below took the file the guard existed to
+      # protect, so a decommissioned CSO left no record of the egress IPs it had
+      # held. Every other decommission path moves values.yaml into the
+      # decommissioned folder first; this one now does the same.
+      if [ -f "$VALUES_FILE_CSO" ]; then
+          mkdir -p "$DECOM_NS_DIR"
+          mv "$VALUES_FILE_CSO" "$DECOM_NS_DIR/dcsc-cso-${TENANT_NAME}_${DATE_SUFFIX}_values.yaml"
+          log_info "Captured CSO state to $DECOM_NS_DIR/dcsc-cso-${TENANT_NAME}_${DATE_SUFFIX}_values.yaml"
+      else
+          log_error "Expected $VALUES_FILE_CSO to exist here; nothing was archived."
+      fi
+
       rm -rf "$PROJECT_DIR_CSO"
     fi
 

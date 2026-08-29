@@ -660,8 +660,7 @@
         "target_cluster": "qa-w1",
         "tenant_name": "acme",
         "siglum": "TD01",
-        "cost_center": "XX/YY1234-56789",
-        "lifecycle": "dev"
+        "cost_center": "XX/YY1234-56789"
       },
       "expect": "accept",
       "exports": {

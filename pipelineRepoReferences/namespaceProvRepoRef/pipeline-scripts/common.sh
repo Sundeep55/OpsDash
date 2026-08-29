@@ -36,3 +36,17 @@ enable_debug_if_requested() {
         set -x
     fi
 }
+
+# A yq array literal from the arguments: a b -> ["a", "b"], none -> []
+#
+# Built by hand because these strings are interpolated into a yq expression, not
+# passed as data. Every caller was rolling the same trailing-comma trim, which is
+# exactly the kind of thing that is right in three places and wrong in the fourth.
+_yq_string_array() {
+    local out="" item
+    for item in "$@"; do
+        [ -n "$item" ] || continue
+        out="${out}\"${item}\", "
+    done
+    printf '[%s]' "${out%, }"
+}

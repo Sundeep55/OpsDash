@@ -458,6 +458,18 @@ function run_scaffold_project() {
         log_info "Enabling Loki Operator..."
         yq e -i '.dcs-namespace-provisioner.managedServices.lokiOperator.enabled = true' "$VALUES_FILE"
     fi
+    # Named for the database rather than the operator, matching cloudNativePG
+    # above -- the two are the same kind of thing and sync_cross_namespace_policies
+    # keys off these names.
+    #
+    # This block was missing: request-schema.yaml has offered
+    # INPUT_PERCONA_MONGODB_OPERATOR all along and nothing read it, so ticking
+    # the box in the form did nothing at all. check-schema-drift.sh had been
+    # reporting it as a dead field.
+    if [[ "$INPUT_PERCONA_MONGODB_OPERATOR" == "true" ]]; then
+        log_info "Enabling Percona MongoDB Operator..."
+        yq e -i '.dcs-namespace-provisioner.managedServices.perconaMongoDB.enabled = true' "$VALUES_FILE"
+    fi
 
     # --- GPU Configuration Logic ---
     if [[ "$INPUT_GPU_ENABLED" == "true" && "$INPUT_GPU_TIER" != "NONE" ]]; then
@@ -662,103 +674,150 @@ function sync_cross_namespace_policies() {
         return
     fi
 
-    # 1. Find all CloudNativePG namespaces
-    local HAS_PG="false"
-    local PG_NAMESPACES=()
-    for val_file in $(find "$CUSTOMER_DIR" -mindepth 2 -maxdepth 2 -name "values.yaml"); do
-        local project_name=$(basename $(dirname "$val_file"))
-        local is_pg=$(yq e '.dcs-namespace-provisioner.managedServices.cloudNativePG.enabled' "$val_file" 2>/dev/null || echo "false")
-        if [[ "${is_pg,,}" == "true" ]]; then
-            PG_NAMESPACES+=("$project_name")
-            HAS_PG="true"
-        fi
-    done
+    # -----------------------------------------------------------------------
+    # The services a DevSpace may need to reach inside its own tenant.
+    #
+    # One line per service. Adding MongoDB is this table plus nothing else --
+    # previously it would have meant copying the whole CNPG branch twice, once
+    # for the DevSpace side and once for the database side, which is how the two
+    # halves drift.
+    #
+    #   <managedServices key>|<list key on the DevSpace>|<flag on the DevSpace>|<flag on the database namespace>
+    #
+    # The database side's list key is always devspaceNamespaces: it is the same
+    # set of DevSpaces whichever service is being reached.
+    #
+    # NOTE: the MongoDB policy key names are the CNPG ones by analogy --
+    # mongoEnabledNamespaces / allowDevspaceEgressToMongo /
+    # allowMongoIngressFromDevSpace. They are placeholders until the chart
+    # settles on its own; changing them is this table and nothing else.
+    # -----------------------------------------------------------------------
+    local CROSS_NS_SERVICES=(
+        "cloudNativePG|cnpgEnabledNamespaces|allowDevspaceEgressToDB|allowCnpgIngressFromDevSpace"
+        "perconaMongoDB|mongoEnabledNamespaces|allowDevspaceEgressToMongo|allowMongoIngressFromDevSpace"
+    )
 
-    # 2. Find all DevSpace namespaces
-    local HAS_DEVSPACE="false"
+    # Every values.yaml in the tenant, found once and reused.
+    local ALL_VALUES=()
+    while IFS= read -r f; do ALL_VALUES+=("$f"); done < <(find "$CUSTOMER_DIR" -mindepth 2 -maxdepth 2 -name "values.yaml" | sort)
+
+    # DevSpaces are named by convention, not by a flag in the file.
     local DEVSPACES=()
     for dir in "$CUSTOMER_DIR"/dcsc-ds-*; do
-        if [ -d "$dir" ]; then
-            DEVSPACES+=("$(basename "$dir")")
-            HAS_DEVSPACE="true"
-        fi
+        [ -d "$dir" ] && DEVSPACES+=("$(basename "$dir")")
+    done
+    local YQ_DEVSPACE_ARR
+    YQ_DEVSPACE_ARR="$(_yq_string_array "${DEVSPACES[@]}")"
+    log_info "DevSpace presence: ${#DEVSPACES[@]}"
+
+    # Which namespaces enable each service, computed once.
+    #
+    # A plain indexed array of "service<space>ns ns ..." rather than an
+    # associative one: this file is sourced by a runner whose bash is not
+    # guaranteed newer than the rest of the script needs, the list is two or
+    # three entries long, and a linear scan of three entries is not worth a
+    # dependency on bash 4 maps.
+    local SERVICE_NAMESPACES=()
+    local entry service list_key ds_flag db_flag
+    for entry in "${CROSS_NS_SERVICES[@]}"; do
+        IFS='|' read -r service list_key ds_flag db_flag <<< "$entry"
+        local matches=""
+        local count=0
+        for val_file in "${ALL_VALUES[@]}"; do
+            local project_name enabled
+            project_name="$(basename "$(dirname "$val_file")")"
+            enabled="$(yq e ".dcs-namespace-provisioner.managedServices.${service}.enabled" "$val_file" 2>/dev/null || echo "false")"
+            if [ "$(printf '%s' "$enabled" | tr 'A-Z' 'a-z')" = "true" ]; then
+                matches="${matches}${project_name} "
+                count=$((count + 1))
+            fi
+        done
+        SERVICE_NAMESPACES+=("${service} ${matches}")
+        log_info "$service presence: $count"
     done
 
-    log_info "CloudNativePG presence: $HAS_PG (Count: ${#PG_NAMESPACES[@]})"
-    log_info "DevSpace presence: $HAS_DEVSPACE (Count: ${#DEVSPACES[@]})"
+    # -----------------------------------------------------------------------
+    # Apply, writing a file only when its content actually changes.
+    #
+    # This used to run `yq e -i` over every values.yaml in the tenant on every
+    # request, including namespaces that neither are a DevSpace nor run any of
+    # these services. yq rewrites the whole file, so each of those turned up as
+    # a modified file in the merge request -- diff noise on every request, which
+    # buries the change the reviewer is there to look at.
+    #
+    # The edit now happens on a copy and is kept only if it differs.
+    # -----------------------------------------------------------------------
+    local val_file
+    for val_file in "${ALL_VALUES[@]}"; do
+        local project_name tmp
+        project_name="$(basename "$(dirname "$val_file")")"
+        tmp="$(mktemp)"
+        cp "$val_file" "$tmp"
 
-    # 3. Determine Matrix boolean
-    local ALLOW="false"
-    if [[ "$HAS_PG" == "true" && "$HAS_DEVSPACE" == "true" ]]; then
-        ALLOW="true"
-    fi
+        local is_devspace="false"
+        [[ "$project_name" == dcsc-ds-* ]] && is_devspace="true"
 
-    # Prepare yq array strings (e.g., ["ns1", "ns2"])
-    local YQ_DEVSPACE_ARR="[]"
-    if [[ ${#DEVSPACES[@]} -gt 0 ]]; then
-        local formatted_arr=""
-        for ds in "${DEVSPACES[@]}"; do
-            formatted_arr="${formatted_arr}\"$ds\", "
+        # Always clear the keys first, so a service switched off leaves nothing
+        # stale behind. On a file that has none, this is a no-op and the compare
+        # below discards the rewrite.
+        for entry in "${CROSS_NS_SERVICES[@]}"; do
+            IFS='|' read -r service list_key ds_flag db_flag <<< "$entry"
+            yq e -i "
+              del(.dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.${list_key}) |
+              del(.dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.${ds_flag}) |
+              del(.dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.${db_flag})
+            " "$tmp"
         done
-        formatted_arr="${formatted_arr%, }"
-        YQ_DEVSPACE_ARR="[${formatted_arr}]"
-    fi
+        yq e -i "del(.dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.devspaceNamespaces)" "$tmp"
 
-    local YQ_PG_ARR="[]"
-    if [[ ${#PG_NAMESPACES[@]} -gt 0 ]]; then
-        local formatted_arr=""
-        for pg in "${PG_NAMESPACES[@]}"; do
-            formatted_arr="${formatted_arr}\"$pg\", "
-        done
-        formatted_arr="${formatted_arr%, }"
-        YQ_PG_ARR="[${formatted_arr}]"
-    fi
+        local wants_devspace_list="false"
+        for entry in "${CROSS_NS_SERVICES[@]}"; do
+            IFS='|' read -r service list_key ds_flag db_flag <<< "$entry"
 
-    # 4. Sync the new structure to all values.yaml files in the tenant
-    for val_file in $(find "$CUSTOMER_DIR" -mindepth 2 -maxdepth 2 -name "values.yaml"); do
-        local project_name=$(basename $(dirname "$val_file"))
-        
-        local IS_CURRENT_DEVSPACE="false"
-        if [[ "$project_name" == dcsc-ds-* ]]; then
-            IS_CURRENT_DEVSPACE="true"
-        fi
+            local service_ns_list=""
+            local row
+            for row in "${SERVICE_NAMESPACES[@]}"; do
+                if [ "${row%% *}" = "$service" ]; then
+                    service_ns_list="${row#* }"
+                    break
+                fi
+            done
 
-        local IS_CURRENT_PG="false"
-        for pg_ns in "${PG_NAMESPACES[@]}"; do
-            if [[ "$pg_ns" == "$project_name" ]]; then
-                IS_CURRENT_PG="true"
-                break
+            local allow="false"
+            if [[ -n "$service_ns_list" && ${#DEVSPACES[@]} -gt 0 ]]; then
+                allow="true"
+            fi
+
+            if [[ "$is_devspace" == "true" ]]; then
+                # The DevSpace side: which namespaces run this service, and may I reach them.
+                local yq_service_arr
+                yq_service_arr="$(_yq_string_array $service_ns_list)"
+                yq e -i "
+                  .dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.${list_key} = ${yq_service_arr} |
+                  .dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.${ds_flag} = ${allow}
+                " "$tmp"
+            elif [[ " $service_ns_list " == *" $project_name "* ]]; then
+                # The database side: may the DevSpaces reach me.
+                yq e -i "
+                  .dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.${db_flag} = ${allow}
+                " "$tmp"
+                wants_devspace_list="true"
             fi
         done
 
-        # Clean up all cross-namespace policy keys first to ensure a clean state
-        # (This safely removes them if a feature was turned off, or if we need to swap keys)
-        yq e -i "
-          del(.dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.cnpgEnabledNamespaces) |
-          del(.dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.allowDevspaceEgressToDB) |
-          del(.dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.devspaceNamespaces) |
-          del(.dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.allowCnpgIngressFromDevSpace)
-        " "$val_file"
-
-        # Inject DevSpace specific keys
-        if [[ "$IS_CURRENT_DEVSPACE" == "true" ]]; then
-            log_info "Syncing cross-namespace policies (DevSpace) for: $project_name"
-            yq e -i "
-              .dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.cnpgEnabledNamespaces = ${YQ_PG_ARR} |
-              .dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.allowDevspaceEgressToDB = ${ALLOW}
-            " "$val_file"
+        # One shared list on the database side, whichever services it runs.
+        if [[ "$wants_devspace_list" == "true" ]]; then
+            yq e -i ".dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.devspaceNamespaces = ${YQ_DEVSPACE_ARR}" "$tmp"
         fi
 
-        # Inject CloudNativePG specific keys
-        if [[ "$IS_CURRENT_PG" == "true" ]]; then
-            log_info "Syncing cross-namespace policies (CloudNativePG) for: $project_name"
-            yq e -i "
-              .dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.devspaceNamespaces = ${YQ_DEVSPACE_ARR} |
-              .dcs-namespace-provisioner.allowedFlows.crossNamespacePolicies.allowCnpgIngressFromDevSpace = ${ALLOW}
-            " "$val_file"
+        if cmp -s "$tmp" "$val_file"; then
+            rm -f "$tmp"
+        else
+            mv "$tmp" "$val_file"
+            log_info "Cross-namespace policies updated for: $project_name"
         fi
     done
-    
+
     log_info "Cross-namespace policy sync complete."
 }
 
