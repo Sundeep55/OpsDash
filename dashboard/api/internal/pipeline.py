@@ -42,6 +42,9 @@ class PipelineConfigView(generics.GenericAPIView):
             'project_id': settings.project_id if settings.is_configured else '',
             'ref': settings.ref,
             'gitlab_url': settings.url if settings.is_configured else '',
+            # The UI says so on screen. A mode where the button looks like it
+            # started a pipeline and did not is only safe if it is obvious.
+            'dry_run': settings.is_dry_run,
             # Two different reasons the buttons are missing, and an operator
             # deserves to know which: nothing is configured, or it is configured
             # and they are not in the group that may use it.
@@ -115,15 +118,25 @@ class PipelineIndexView(generics.GenericAPIView):
 
         def tenant_slot(cluster_name, tenant_name):
             cluster = clusters.setdefault(cluster_name, {})
-            return cluster.setdefault(tenant_name, {'namespaces': [], 'capsules': []})
+            return cluster.setdefault(tenant_name, {
+                'namespaces': [], 'capsules': [], 'siglum': None, 'cost_center': None,
+            })
 
         # Every active tenant, including those with nothing in them yet -- an
         # empty tenant is still a tenant you can add a namespace to.
-        for name, cluster_name in (Tenant.objects
-                                   .filter(is_decommissioned=False)
-                                   .values_list('name', 'cluster__name')):
+        #
+        # The siglum and cost centre travel with it so that choosing a tenant in
+        # the form can fill them in. They are properties of the tenant, and
+        # making an operator retype what the dashboard already knows is both
+        # friction and a chance to enter something that disagrees with Git.
+        for name, cluster_name, siglum, cost_center in (
+            Tenant.objects.filter(is_decommissioned=False)
+                  .values_list('name', 'cluster__name', 'siglum', 'cost_center')
+        ):
             if cluster_name:
-                tenant_slot(cluster_name, name)
+                slot = tenant_slot(cluster_name, name)
+                slot['siglum'] = siglum or None
+                slot['cost_center'] = cost_center or None
 
         for name, tenant_name, cluster_name in (Namespace.objects
                                                 .filter(is_decommissioned=False)
@@ -205,6 +218,7 @@ class PipelineTriggerView(generics.GenericAPIView):
             'web_url': result.get('web_url'),
             'status': result.get('status'),
             'operation': operation,
+            'dry_run': bool(result.get('dry_run')),
         }, status=201)
 
 

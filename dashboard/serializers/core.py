@@ -4,6 +4,9 @@ Split from the product serializers in flat.py because the two have different
 stability guarantees: these may change freely alongside the frontend, whereas
 the flat ones are a contract with other teams.
 """
+import json
+import re
+
 from django.db.models import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
@@ -319,6 +322,55 @@ class UserListSerializer(serializers.Serializer):
     capsule_count = serializers.IntegerField(required=False, default=0)
 
 
+def _humanise(key):
+    """`requestsEphemeralStorage` / `requests_storage` -> `Requests Ephemeral Storage`."""
+    spaced = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', str(key).replace('_', ' '))
+    return spaced.replace('-', ' ').strip().title()
+
+
+def _leaf_fields(value, prefix=''):
+    """Flatten a config block into label/value rows.
+
+    Nested one level deep with a dotted label, because that is as far as the
+    capsule chart actually nests and deeper would produce labels nobody can
+    read. Anything below that is handed over as its own compact JSON string --
+    still visible, still honest, and rare.
+    """
+    rows = []
+    for key, item in value.items():
+        label = f'{prefix}{_humanise(key)}'
+        if isinstance(item, dict):
+            if item and all(not isinstance(v, (dict, list)) for v in item.values()):
+                rows.extend(_leaf_fields(item, prefix=f'{label} · '))
+            else:
+                rows.append({'name': key, 'label': label,
+                             'value': json.dumps(item, separators=(', ', ': '))})
+        elif isinstance(item, list):
+            # A list of scalars reads as a list; a list of objects does not, so
+            # it is summarised by count rather than printed as JSON soup.
+            if all(not isinstance(v, (dict, list)) for v in item):
+                rows.append({'name': key, 'label': label, 'value': item})
+            else:
+                rows.append({'name': key, 'label': label,
+                             'value': f'{len(item)} entr{"y" if len(item) == 1 else "ies"}'})
+        else:
+            rows.append({'name': key, 'label': label, 'value': item})
+    return rows
+
+
+def _describe_block(key, value):
+    """One config block as a DetailSection descriptor, or None if unrenderable."""
+    if isinstance(value, dict):
+        fields = _leaf_fields(value)
+    elif isinstance(value, list):
+        fields = [{'name': key, 'label': _humanise(key),
+                   'value': value if all(not isinstance(v, (dict, list)) for v in value)
+                   else f'{len(value)} entr{"y" if len(value) == 1 else "ies"}'}]
+    else:
+        fields = [{'name': key, 'label': _humanise(key), 'value': value}]
+    return {'title': _humanise(key), 'fields': fields} if fields else None
+
+
 class CapsuleSerializer(serializers.ModelSerializer):
     """A capsule and the quota it shares across its own namespaces.
 
@@ -332,6 +384,13 @@ class CapsuleSerializer(serializers.ModelSerializer):
     siglum = serializers.SerializerMethodField()
     quota = serializers.SerializerMethodField()
     harbor = serializers.SerializerMethodField()
+    # The same three names the namespace list serializer uses, so the two
+    # directories can render their feature chips from identical markup. A
+    # capsule has no operators today; the field is present and empty so the
+    # chip loop already works the day the chart grows managedServices.
+    network_flows = serializers.SerializerMethodField()
+    templates = serializers.SerializerMethodField()
+    operators = serializers.SerializerMethodField()
 
     class Meta:
         model = Capsule
@@ -339,6 +398,7 @@ class CapsuleSerializer(serializers.ModelSerializer):
             'name', 'tenant', 'cluster', 'lifecycle', 'siglum', 'cost_center',
             'requester', 'request_ticket', 'is_decommissioned',
             'global_egress_ip_name', 'quota', 'harbor',
+            'network_flows', 'templates', 'operators',
         ]
 
     @extend_schema_field(OpenApiTypes.STR)
@@ -361,6 +421,34 @@ class CapsuleSerializer(serializers.ModelSerializer):
     def get_harbor(self, obj):
         return {"enable": obj.harbor_enabled, "storageQuota": obj.harbor_storage_quota_gb}
 
+    @extend_schema_field(OpenApiTypes.OBJECT)
+    def get_network_flows(self, obj):
+        """Read out of the stored config rather than columns.
+
+        A capsule's allowedFlows block is not promoted to model fields the way a
+        namespace's is -- it lives in `config` verbatim. Shaped identically to
+        the namespace serializer's so the templates match.
+        """
+        flows = (obj.config or {}).get('allowedFlows') or {}
+        return {
+            "enabled": bool(flows.get('enabled', flows.get('enable', False))),
+            "dns": bool(flows.get('dnsResolutionEnabled', False)),
+            "proxy": bool(flows.get('proxyEnabled', False)),
+        }
+
+    @extend_schema_field(OpenApiTypes.ANY)
+    def get_templates(self, obj):
+        # Names and kinds only; the list view reads nothing but the count.
+        return [{"kind": c.kind, "name": c.name} for c in obj.custom_resources.all()]
+
+    @extend_schema_field(OpenApiTypes.OBJECT)
+    def get_operators(self, obj):
+        managed = (obj.config or {}).get('managedServices') or {}
+        return {
+            name: {"enabled": bool(conf.get('enabled', False))}
+            for name, conf in managed.items() if isinstance(conf, dict)
+        }
+
 
 class CapsuleDetailSerializer(CapsuleSerializer):
     """Everything about one capsule, for the detail page.
@@ -374,10 +462,10 @@ class CapsuleDetailSerializer(CapsuleSerializer):
     owners = serializers.ListField(child=serializers.CharField(), read_only=True)
     users = serializers.ListField(child=serializers.CharField(), read_only=True)
     templates = serializers.SerializerMethodField()
-    config = serializers.JSONField(read_only=True)
+    sections = serializers.SerializerMethodField()
 
     class Meta(CapsuleSerializer.Meta):
-        fields = CapsuleSerializer.Meta.fields + ['owners', 'users', 'templates', 'config']
+        fields = CapsuleSerializer.Meta.fields + ['owners', 'users', 'templates', 'sections']
 
     @extend_schema_field(OpenApiTypes.ANY)
     def get_templates(self, obj):
@@ -385,3 +473,23 @@ class CapsuleDetailSerializer(CapsuleSerializer):
             {"kind": c.kind, "name": c.name, "content": c.content}
             for c in obj.custom_resources.all()
         ]
+
+    @extend_schema_field(OpenApiTypes.OBJECT)
+    def get_sections(self, obj):
+        """The remaining provisioner blocks, in the shape DetailSection renders.
+
+        Previously this was handed over as raw `config` JSON and the page
+        printed it into a <pre>. That is a config file on screen, not a UI, and
+        it looked nothing like the namespace page beside it.
+
+        The namespace equivalent is driven by an explicit registry
+        (gitops/sections.py) because a namespace's blocks are known. A capsule's
+        are not -- the chart is still growing keys, and the whole point of
+        storing them verbatim is that a new one appears without a dashboard
+        change. So the shape is derived rather than declared: each top-level
+        block becomes a card, each leaf a labelled field. Same output contract,
+        so the same component renders both.
+        """
+        return {key: _describe_block(key, value)
+                for key, value in sorted((obj.config or {}).items())
+                if _describe_block(key, value)}

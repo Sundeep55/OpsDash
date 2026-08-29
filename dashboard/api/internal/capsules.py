@@ -28,7 +28,9 @@ class CapsuleListApiView(generics.ListAPIView):
     search_fields = ['name', 'tenant__name', 'siglum']
 
     def get_queryset(self):
-        qs = Capsule.objects.select_related('tenant', 'cluster')
+        # custom_resources is prefetched because the feature chips count them;
+        # without it the list issues one query per capsule.
+        qs = Capsule.objects.select_related('tenant', 'cluster').prefetch_related('custom_resources')
 
         cluster = self.request.query_params.get('cluster')
         if cluster and cluster != 'All':

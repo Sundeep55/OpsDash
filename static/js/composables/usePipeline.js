@@ -76,14 +76,22 @@ export function usePipeline({ onError } = {}) {
      * "Add namespace" inside a tenant offers the standard, DevSpace and egress
      * variants, because they are the same decision made three ways. `prefill`
      * is what the surrounding page already knows: cluster, tenant, namespace.
+     * `locked` is the subset of that the operator must not change -- see the
+     * openers in app.js for why each one is fixed.
      */
-    const open = async ({ operation, choices = null, prefill = {}, title = '' }) => {
+    const open = async ({ operation, choices = null, prefill = {}, title = '',
+                          locked = [], tenantFromIndex = false }) => {
         result.value = null;
         request.value = {
             operation,
             choices: choices && choices.length ? choices : [operation],
             prefill,
             title,
+            // Fields the calling page has already decided. They still travel in
+            // the payload; they are simply not the operator's to change here.
+            locked,
+            // Tenant is chosen from the ones that exist rather than typed.
+            tenantFromIndex,
         };
         // Opened first, then loaded: the dialog shows its own loading state,
         // which is far better than a button that appears to do nothing for a

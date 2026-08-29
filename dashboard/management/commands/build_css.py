@@ -63,6 +63,24 @@ SPACING_PROPERTIES = {
     # already using gap-y-5, which had been resolving to nothing.
     'gap-x': ['column-gap'], 'gap-y': ['row-gap'],
     'w': ['width'], 'h': ['height'],
+    # Bounds, not sizes. Added after `max-h-72` on the expiry banner's scroll
+    # box resolved to nothing: the prefix filter below matches `[pm]` or a bare
+    # w/h, so "max-h-72" was neither generated nor reported, and the list simply
+    # grew to its full 13,405px instead of scrolling.
+    'max-w': ['max-width'], 'max-h': ['max-height'],
+    'min-w': ['min-width'], 'min-h': ['min-height'],
+}
+
+# Named sizes for max-w / min-w, which are a separate scale from --spacing.
+# Tailwind v4's defaults. Only the ones this project uses are listed; an
+# unlisted one is reported rather than silently skipped, same as everything else.
+NAMED_SIZES = {
+    'xs': '20rem', 'sm': '24rem', 'md': '28rem', 'lg': '32rem', 'xl': '36rem',
+    '2xl': '42rem', '3xl': '48rem', '4xl': '56rem', '5xl': '64rem',
+    '6xl': '72rem', '7xl': '80rem',
+    # Keywords, not sizes.
+    'full': '100%', 'screen': '100vw', 'none': 'none', 'min': 'min-content',
+    'max': 'max-content', 'fit': 'fit-content',
 }
 
 BORDER_WIDTH = {
@@ -147,6 +165,20 @@ class Compiler:
             return ('grid-column: 1 / -1;' if value == 'full'
                     else f'grid-column: span {value} / span {value};')
 
+        # Named bounds: max-w-md, max-w-3xl, min-h-screen. A different scale
+        # from --spacing, so the numeric rule below cannot reach them.
+        named = re.fullmatch(r'((?:max|min)-[wh])-([a-z0-9]+)', base)
+        if named:
+            prefix, size = named.groups()
+            props = SPACING_PROPERTIES.get(prefix)
+            # 'screen' means the viewport in the axis being bounded.
+            if size == 'screen':
+                value = '100vh' if prefix.endswith('h') else '100vw'
+            else:
+                value = NAMED_SIZES.get(size)
+            if props and value:
+                return ' '.join(f'{p}: {value};' for p in props)
+
         # auto margins: ml-auto, mx-auto. Not on the --spacing scale, so the
         # numeric rule below cannot express them -- 'auto' is a keyword, not a
         # multiple. Wanted for the common "push this one item to the end of a
@@ -162,7 +194,7 @@ class Compiler:
         # gap-y-0.5. The prefix alternation has to spell the gap forms out: the
         # [a-z]{1,2} class cannot match 'gap', so gap utilities only ever worked
         # when the vendored build happened to already contain them.
-        spacing = re.fullmatch(r'(-?)([a-z]{1,2}|gap(?:-[xy])?)-(\d+(?:\.\d+)?)', base)
+        spacing = re.fullmatch(r'(-?)([a-z]{1,2}|gap(?:-[xy])?|(?:max|min)-[wh])-(\d+(?:\.\d+)?)', base)
         if spacing:
             sign, prefix, amount = spacing.groups()
             props = SPACING_PROPERTIES.get(prefix)
@@ -274,7 +306,7 @@ class Command(BaseCommand):
             if rule is None:
                 # Only report things that look like real utilities. Words such as
                 # 'active' or 'prod' appear inside :class expressions as values.
-                if re.match(r'!?([a-z]+:)?(bg|text|border|ring|from|to|[pm][xytblr]?|gap(-[xy])?|grid-cols|col-span|w|h)-', cls):
+                if re.match(r'!?([a-z]+:)?(bg|text|border|ring|from|to|[pm][xytblr]?|gap(-[xy])?|grid-cols|col-span|(?:max|min)-[wh]|w|h)-', cls):
                     unsupported[cls] = used[cls]
                 continue
             rules.append(rule)

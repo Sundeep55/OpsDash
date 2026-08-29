@@ -43,6 +43,12 @@
                     Request Change
                 </button>
 
+                <a :href="exportUrl('capsules', { search: selected.capsule.name, status: 'all' })"
+                   class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-colors focus-ring" title="This capsule as CSV">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    Export
+                </a>
+
                 <a v-if="gitBrowserUrl" :href="`${gitBrowserUrl}/${selected.capsule.cluster}/${selected.capsule.tenant}/${selected.capsule.name}`" target="_blank" class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-colors">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                     View in Git
@@ -191,19 +197,22 @@
                 </div>
             </div>
 
-            <div class="bento-card">
+            {% comment %}
+              The remaining provisioner blocks, rendered by the same component
+              the namespace page uses for its sections -- labelled fields in a
+              card, not a <pre> of raw JSON.
+
+              The backend derives the descriptors rather than declaring them
+              (see CapsuleDetailSerializer.get_sections), because a capsule's
+              blocks are whatever the chart carries. The output contract is the
+              namespace one, so this needs no capsule-specific markup and a new
+              chart key still appears with no dashboard change.
+            {% endcomment %}
+            <detail-section v-for="(section, key) in selected.capsule.sections" :key="key" :section="section"></detail-section>
+            <div v-if="!Object.keys(selected.capsule.sections || {}).length" class="bento-card">
                 <div class="bento-header"><h4 class="bento-title">Chart Configuration</h4></div>
                 <div class="bento-body">
-                    <div v-if="capsuleConfigBlocks.length" class="space-y-2">
-                        <details v-for="b in capsuleConfigBlocks" :key="b.key" class="rounded-lg border border-slate-200 overflow-hidden">
-                            <summary class="cursor-pointer bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 select-none flex items-center justify-between gap-2">
-                                <span class="font-mono">[[ b.key ]]</span>
-                                <span class="font-semibold text-slate-400">[[ b.summary ]]</span>
-                            </summary>
-                            <pre class="text-xs p-3 overflow-x-auto bg-white text-slate-700 border-t border-slate-100">[[ b.pretty ]]</pre>
-                        </details>
-                    </div>
-                    <p v-else class="text-sm font-medium text-slate-400 italic">No additional configuration.</p>
+                    <p class="text-sm font-medium text-slate-400 italic">No additional configuration.</p>
                 </div>
             </div>
 

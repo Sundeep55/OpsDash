@@ -20,6 +20,7 @@ Concretely: the operation must be one the schema declares, every key must be a
 field that operation offers, values must be scalars, and the whole thing must
 fit. Nothing else.
 """
+import itertools
 import json
 import logging
 import urllib.parse
@@ -100,6 +101,50 @@ def check_payload(operation, payload, schema):
     return clean, encoded
 
 
+_dry_run_counter = itertools.count(1)
+
+
+def _dry_run(inputs, settings):
+    """Print what would have been sent, and pretend it was accepted.
+
+    Only reachable when PIPELINE_SCHEMA_FILE is set, and it returns before any
+    request object is built -- there is no code path from here to the network.
+
+    Printed rather than logged at debug: the whole reason to run this mode is to
+    read the payload, and asking someone to also raise the log level to see the
+    one thing the mode exists for would be perverse. Nothing prints unless the
+    mode is on, so the ordinary deployment is unaffected.
+    """
+    number = next(_dry_run_counter)
+    banner = '=' * 72
+    lines = [
+        '',
+        banner,
+        f'PIPELINE DRY RUN #{number} -- nothing was sent to GitLab',
+        f'  schema : {settings.schema_file}',
+        f'  ref    : {settings.ref}',
+        banner,
+        f'  OPERATION    = {inputs["OPERATION"]}',
+        f'  TRIGGERED_BY = {inputs["TRIGGERED_BY"]}',
+        '  REQUEST_PAYLOAD =',
+    ]
+    decoded = json.loads(inputs['REQUEST_PAYLOAD'])
+    width = max((len(k) for k in decoded), default=0)
+    for key in sorted(decoded):
+        lines.append(f'      {key.ljust(width)} = {decoded[key]}')
+    lines.append(f'  ({len(inputs["REQUEST_PAYLOAD"])} bytes as one CI input value)')
+    lines.append(banner)
+    lines.append('')
+    print('\n'.join(lines), flush=True)
+
+    return {
+        'id': 900000 + number,
+        'status': 'dry-run',
+        'web_url': '',
+        'dry_run': True,
+    }
+
+
 def trigger(operation, payload, triggered_by, settings=None):
     """Start a pipeline. Returns GitLab's response dict.
 
@@ -113,24 +158,26 @@ def trigger(operation, payload, triggered_by, settings=None):
     schema = get_schema(settings)
     _, encoded = check_payload(operation, payload, schema)
 
+    inputs = {
+        'OPERATION': operation,
+        'REQUEST_PAYLOAD': encoded,
+        # Attribution. The pipeline runs as the service token, so without this
+        # every request in GitLab looks like it came from the same bot.
+        # Deliberately not requester_email: that is the customer who raised the
+        # ITSM ticket, not whoever pressed the button here.
+        'TRIGGERED_BY': triggered_by or '',
+    }
+
+    if settings.is_dry_run:
+        return _dry_run(inputs, settings)
+
     if not settings.ssl_verify:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     url = (f"{settings.url}/api/v4/projects/"
            f"{urllib.parse.quote(str(settings.project_id), safe='')}/pipeline")
 
-    body = {
-        'ref': settings.ref,
-        'inputs': {
-            'OPERATION': operation,
-            'REQUEST_PAYLOAD': encoded,
-            # Attribution. The pipeline runs as the service token, so without
-            # this every request in GitLab looks like it came from the same bot.
-            # Deliberately not requester_email: that is the customer who raised
-            # the ITSM ticket, not whoever pressed the button here.
-            'TRIGGERED_BY': triggered_by or '',
-        },
-    }
+    body = {'ref': settings.ref, 'inputs': inputs}
 
     # Logged before the call, not after: if GitLab times out we still want a
     # record that this user asked for this operation. The payload itself is not

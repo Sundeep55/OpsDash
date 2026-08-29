@@ -51,10 +51,43 @@ class SecurityRouteExceptionApiView(generics.ListAPIView):
         # and the set is small (one row per exception, not per namespace).
         wanted = self.request.query_params.get('status')
         qs = qs.order_by('-granted_at')
+
+        # `expired_within=N` narrows the expired ones to those that lapsed in the
+        # last N days. For the banner, which otherwise repeats every grant that
+        # ever lapsed, on every page, for ever -- and stops being read long
+        # before it stops being shown. Only expired rows are affected; an
+        # expiring one is never suppressed, and asking without this parameter
+        # still returns everything.
+        window = self.request.query_params.get('expired_within')
+        rows = qs
         if wanted and wanted != 'All':
             allowed = {w.strip() for w in wanted.split(',')}
-            return [r for r in qs if r.status in allowed]
-        return qs
+            rows = [r for r in qs if r.status in allowed]
+
+        if window:
+            try:
+                limit = int(window)
+            except ValueError:
+                return list(rows)
+            rows = [
+                r for r in rows
+                if r.status != 'expired'
+                or (r.days_since_expiry is not None and r.days_since_expiry <= limit)
+            ]
+
+        rows = list(rows)
+
+        # Most urgent first, whenever a status filter has been applied.
+        #
+        # The queryset orders newest-granted first, which is nearly the reverse
+        # of what matters here: the newest grants are the ones comfortably in
+        # force, and the lapsed ones sort last. A caller asking for
+        # "expiring,expired" wants to read the worst ones at the top.
+        if wanted and wanted != 'All':
+            order = {'expired': 0, 'expiring': 1, 'active': 2, 'inactive': 3}
+            rows.sort(key=lambda r: (order.get(r.status, 9),
+                                     r.days_remaining if r.days_remaining is not None else 9999))
+        return rows
 
 
 class SecurityPostureApiView(APIView):

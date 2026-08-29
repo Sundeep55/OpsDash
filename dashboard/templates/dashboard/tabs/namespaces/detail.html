@@ -25,6 +25,12 @@
                 Request Change
             </button>
 
+            <a :href="exportUrl('namespaces', { search: selected.namespace.name, status: 'all' })"
+               class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-colors focus-ring" title="This namespace as CSV">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Export
+            </a>
+
             <!-- GIT BROWSER BUTTON -->
             <a v-if="gitBrowserUrl" :href="`${gitBrowserUrl}/${selected.namespace.cluster}/${selected.namespace.tenant}/${selected.namespace.name}`" target="_blank" class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
@@ -118,9 +124,43 @@
                             <span v-else class="badge !bg-orange-100 !text-orange-800 !m-0 !text-[9px]">ACTIVE</span>
                         </div>
                         <div class="grid grid-cols-2 gap-2 mt-3">
-                            <div><span class="text-[10px] font-bold text-slate-400 uppercase">ITSM Auth:</span><p class="text-xs font-bold text-blue-600">[[ selected.namespace.routeException.requestId || 'Unknown' ]]</p></div>
+                            {% comment %}
+                              Styled blue as though it were a link, but wasn't
+                              one. The Requests tab now records route exceptions
+                              under their own security ticket, so it leads
+                              somewhere real.
+                            {% endcomment %}
+                            <div>
+                                <span class="text-[10px] font-bold text-slate-400 uppercase">ITSM Auth:</span>
+                                <a v-if="selected.namespace.routeException.requestId"
+                                   @click="jumpTo('requests', selected.namespace.routeException.requestId)"
+                                   class="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer block">
+                                    [[ selected.namespace.routeException.requestId ]]
+                                </a>
+                                <p v-else class="text-xs font-bold text-slate-400 italic">Unknown</p>
+                            </div>
                             <div><span class="text-[10px] font-bold text-slate-400 uppercase">Granted On:</span><p class="text-xs font-bold text-slate-700">[[ selected.namespace.routeException.grantedAt ]]</p></div>
-                            <div class="col-span-2"><span class="text-[10px] font-bold text-slate-400 uppercase">Days Active:</span><p :class="['text-[10px] font-bold mt-0.5', selected.namespace.routeException.status === 'expired' ? 'text-red-600' : 'text-slate-600']">[[ selected.namespace.routeException.daysActive ]] Days</p></div>
+                            {% comment %}
+                              For a lapsed grant this said "200 Days" -- today
+                              minus granted_at, with no ceiling -- when the
+                              waiver had only ever been in force for its 90 day
+                              term. A waiver's own card overstating how long the
+                              waiver applied is precisely the wrong way round.
+
+                              daysActive is now capped at the expiry date, and a
+                              lapsed grant says so in the past tense with how
+                              long ago it ended.
+                            {% endcomment %}
+                            <div class="col-span-2">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase">
+                                    [[ selected.namespace.routeException.status === 'expired' ? 'Was Active For:' : 'Days Active:' ]]
+                                </span>
+                                <p :class="['text-[10px] font-bold mt-0.5', selected.namespace.routeException.status === 'expired' ? 'text-red-600' : 'text-slate-600']">
+                                    [[ selected.namespace.routeException.daysActive ]] Days<span
+                                        v-if="selected.namespace.routeException.status === 'expired'">
+                                        — lapsed on [[ selected.namespace.routeException.expiresAt ]]</span>
+                                </p>
+                            </div>
                         </div>
                     </div>
                 </div>

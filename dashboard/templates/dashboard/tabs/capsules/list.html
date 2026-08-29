@@ -30,6 +30,11 @@
         [[ capsulesList.length ]] capsule[[ capsulesList.length === 1 ? '' : 's' ]]
     </span>
 
+    <a :href="exportUrl('capsules', { search: search.capsule, cluster: globalClusterFilter, status: search.capsuleStatus })"
+       class="ml-auto shrink-0 h-[42px] inline-flex items-center justify-center gap-2 rounded-full bg-white border border-slate-200 px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-all focus-ring" title="Capsules as CSV, matching the current filters">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+        Export CSV
+    </a>
     <button v-if="pipelineAvailable" @click="newCapsule()" type="button"
             class="ml-auto shrink-0 h-[42px] inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all focus-ring">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
@@ -70,26 +75,28 @@
                         <span v-else class="badge badge-slate !m-0" title="No lifecycle label in Git">N/A</span>
 
                         {% comment %}
-                          Only what distinguishes one capsule from another.
+                          The same chip vocabulary as the namespace directory --
+                          same icons, same titles, same order -- so the two
+                          lists read identically and a feature added to capsules
+                          later slots into a shape people already know.
 
-                          Harbor was previously shown for every capsule that had
-                          it enabled, which in practice is nearly all of them --
-                          a chip that is always on carries no information and
-                          only adds noise. Egress is shown because a capsule
-                          with a global egress IP genuinely differs from one
-                          without; it appeared on every row in testing because
-                          the sample data set it unconditionally, not because
-                          the UI was wrong.
+                          The quota and the ticket used to be spelled out here.
+                          Both are per-capsule facts rather than features: they
+                          say nothing at a glance, they are what the detail page
+                          is for, and they crowded out the things that do
+                          distinguish one row from another.
                         {% endcomment %}
-                        <span v-if="c.global_egress_ip_name" :title="`Global egress IP: ${c.global_egress_ip_name}`" class="badge !bg-teal-100 !text-teal-800 !border-teal-200 !m-0 !px-1.5 !py-1">EGRESS</span>
+                        <span v-if="c.global_egress_ip_name" :title="`Global Egress IP: ${c.global_egress_ip_name}`" class="badge !bg-teal-100 !text-teal-800 !border-teal-200 !m-0 !px-1.5 !py-1">EGRESS</span>
 
-                        <span v-if="c.quota?.enabled" :title="`Shared quota — requests ${c.quota.requestsCpu || '?'} cpu / ${c.quota.requestsMemory || '?'} memory`"
-                              class="badge badge-slate !m-0 !px-1.5 !py-1 bg-white text-slate-600 font-mono">
-                            [[ c.quota.requestsCpu || '?' ]]c · [[ c.quota.requestsMemory || '?' ]]
+                        <span v-if="c.network_flows?.enabled" title="Custom Flows Enabled" class="badge badge-green !m-0 !px-1.5 !py-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg></span>
+                        <span v-if="c.network_flows?.dns" title="DNS Resolution Enabled" class="badge badge-blue !m-0 !px-1.5 !py-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg></span>
+                        <span v-if="c.network_flows?.proxy" title="Proxy Access Enabled" class="badge badge-indigo !m-0 !px-1.5 !py-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg></span>
+
+                        <span v-if="c.templates?.length" :title="`Custom Resources: ${c.templates.length} Templates`" class="badge badge-slate !m-0 !px-1.5 !py-1 bg-white text-slate-700 font-bold"><svg class="w-3.5 h-3.5 mr-1 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>[[ c.templates.length ]]</span>
+
+                        <span v-for="(conf, opName) in c.operators" :key="opName" v-show="conf.enabled" class="badge badge-slate !m-0 !px-1.5 !py-1 bg-white shadow-sm flex items-center justify-center" :title="`Operator: ${opName.replace('Operator', '')}`">
+                            <span v-html="getOperatorIcon(opName)"></span>
                         </span>
-                        <span v-else class="badge badge-slate !m-0 !px-1.5 !py-1 bg-white text-slate-400 italic">No quota</span>
-
-                        <span v-if="c.request_ticket" class="text-[11px] text-slate-400 font-mono ml-1">[[ c.request_ticket ]]</span>
                     </div>
                 </td>
             </tr>

@@ -4,8 +4,24 @@
         <input v-model="search.siglum" type="text" class="pl-11 block w-full rounded-xl border-0 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-slate-900 sm:text-sm font-medium transition-all" placeholder="Search exact Siglum (e.g., TDICC)...">
     </div>
     
+    {% comment %}
+      Export.
+
+      A plain <a download> to the API rather than a fetch: the browser handles
+      the file, the session cookie authenticates it, and there is no blob to
+      build or revoke. `cluster` follows the global selector so the export
+      matches what is on screen.
+    {% endcomment %}
     <div v-if="!search.siglum">
-        <h3 class="font-bold text-slate-700 mb-4 border-b border-slate-200 pb-2">All Active Organizational Siglums</h3>
+        <div class="flex items-center justify-between gap-4 mb-4 border-b border-slate-200 pb-2">
+            <h3 class="font-bold text-slate-700">All Active Organizational Siglums</h3>
+            <a :href="`/api/v2/siglums/export/${globalClusterFilter !== 'All' ? '?cluster=' + encodeURIComponent(globalClusterFilter) : ''}`"
+               class="shrink-0 inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-colors focus-ring"
+               title="One row per siglum: how much of the platform each one holds">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Export all siglums (CSV)
+            </a>
+        </div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div v-for="sig in allSiglumsList" :key="sig" @click="search.siglum = sig" class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-blue-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-3">
                 <div class="bg-blue-50 p-2 rounded-lg text-blue-600">
@@ -22,12 +38,31 @@
             Clear Search
         </button>
 
-        <h2 class="text-2xl font-extrabold text-slate-900 mb-6 flex items-center gap-3">
-            <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path></svg>
-            Results for: [[ search.siglum.toUpperCase() ]]
-        </h2>
+        <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+            <h2 class="text-2xl font-extrabold text-slate-900 flex items-center gap-3">
+                <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path></svg>
+                Results for: [[ search.siglum.toUpperCase() ]]
+            </h2>
+            <a :href="`/api/v2/siglums/export/?siglum=${encodeURIComponent(search.siglum)}${globalClusterFilter !== 'All' ? '&cluster=' + encodeURIComponent(globalClusterFilter) : ''}`"
+               class="shrink-0 inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-colors focus-ring"
+               title="Every tenant, namespace and capsule under this siglum, with its reserved CPU and memory">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Export [[ search.siglum.toUpperCase() ]] (CSV)
+            </a>
+        </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {% comment %}
+          One column, three stacked sections.
+
+          Namespaces and capsules carry the same four columns, so putting one
+          in a half-width grid cell and the other across the full row made the
+          identical table look like two different things -- and squeezed the
+          namespace one for no reason. Tenants has only two columns and does
+          not need the width, but sharing the layout costs it nothing and
+          keeps the page reading as one list of answers rather than three
+          panels of different shapes.
+        {% endcomment %}
+        <div class="space-y-8">
             <div>
                 <h3 class="font-bold text-slate-700 mb-3 flex items-center gap-2">Tenants <span class="badge badge-slate !m-0">[[ filteredSiglumResults.tenants.length ]]</span></h3>
                 <div class="data-table-wrapper"><table class="data-table">
@@ -51,9 +86,23 @@
                 </table></div>
             </div>
             <div>
+                {% comment %}
+                  Namespaces and capsules both show tenant and lifecycle.
+
+                  The capsule table had them and this one did not, so the same
+                  page answered "which tenant is this under" for one kind of
+                  object and not the other. Levelling up rather than down: the
+                  tenant is the thing you actually want next from a siglum
+                  search, and the lifecycle is how you tell prod from dev
+                  without opening each row.
+
+                  Tenants keep cluster + name, because for a tenant those two
+                  are the whole identity -- it has no tenant of its own and its
+                  lifecycle is a property of what is inside it.
+                {% endcomment %}
                 <h3 class="font-bold text-slate-700 mb-3 flex items-center gap-2">Namespaces <span class="badge badge-slate !m-0">[[ filteredSiglumResults.namespaces.length ]]</span></h3>
                 <div class="data-table-wrapper"><table class="data-table">
-                    <thead><tr><th>Cluster</th><th>Namespace Name</th></tr></thead>
+                    <thead><tr><th>Cluster</th><th>Namespace Name</th><th>Tenant</th><th>Lifecycle</th></tr></thead>
                     <tbody>
                         <tr v-for="ns in filteredSiglumResults.namespaces" :key="ns.name">
                             <td class="font-mono text-xs text-slate-500 w-28">
@@ -68,25 +117,33 @@
                                     [[ ns.name ]]
                                 </a>
                             </td>
+                            <td>
+                                <a @click="jumpTo('tenants', ns.tenant)" class="entity-link">
+                                    <svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                                    [[ ns.tenant ]]
+                                </a>
+                            </td>
+                            <td>
+                                <span v-if="ns.is_decommissioned" class="badge badge-red !m-0">Decommissioned</span>
+                                <span v-else-if="ns.is_cso" class="badge !bg-teal-100 !text-teal-800 !border-teal-200 !m-0">EGRESS</span>
+                                <span v-else-if="ns.is_devspace" class="badge badge-purple !m-0">DEVSPACE</span>
+                                <span v-else-if="ns.lifecycle" :class="['badge !m-0', ns.lifecycle.toLowerCase() === 'prod' ? 'badge-green' : 'badge-blue']">[[ ns.lifecycle.toUpperCase() ]]</span>
+                                <span v-else class="badge badge-slate !m-0">N/A</span>
+                            </td>
                         </tr>
                     </tbody>
                 </table></div>
             </div>
-        </div>
 
-        {% comment %}
-          Capsules carrying this siglum.
+            {% comment %}
+              Capsules carrying this siglum.
 
-          A capsule has a siglum of its own and falls back to its tenant's,
-          exactly as a namespace does -- but it was left out of this view
-          entirely, so searching a siglum that belongs to a capsule listed the
-          siglum and then showed nothing under it.
-
-          Full width beneath the two columns rather than a third column: the
-          count is small and squeezing three tables across the page would make
-          all three unreadable.
-        {% endcomment %}
-        <div v-if="filteredSiglumResults.capsules?.length" class="mt-8">
+              A capsule has a siglum of its own and falls back to its tenant's,
+              exactly as a namespace does -- but it was left out of this view
+              entirely, so searching a siglum that belongs to a capsule listed
+              the siglum and then showed nothing under it.
+            {% endcomment %}
+            <div v-if="filteredSiglumResults.capsules?.length">
             <h3 class="font-bold text-slate-700 mb-3 flex items-center gap-2">
                 Capsules <span class="badge badge-slate !m-0">[[ filteredSiglumResults.capsules.length ]]</span>
             </h3>
@@ -106,7 +163,12 @@
                                 [[ c.name ]]
                             </a>
                         </td>
-                        <td class="text-slate-600 font-medium">[[ c.tenant ]]</td>
+                        <td>
+                            <a @click="jumpTo('tenants', c.tenant)" class="entity-link">
+                                <svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                                [[ c.tenant ]]
+                            </a>
+                        </td>
                         <td>
                             <span v-if="c.is_decommissioned" class="badge badge-red !m-0">Decommissioned</span>
                             <span v-else-if="c.lifecycle" :class="['badge !m-0', c.lifecycle.toLowerCase() === 'prod' ? 'badge-green' : 'badge-blue']">[[ c.lifecycle.toUpperCase() ]]</span>
@@ -114,7 +176,8 @@
                         </td>
                     </tr>
                 </tbody>
-            </table></div>
+                </table></div>
+            </div>
         </div>
     </div>
     <p v-else class="text-slate-500 py-10 text-center italic bg-white rounded-xl border border-slate-200">No exact matches found for that Siglum.</p>

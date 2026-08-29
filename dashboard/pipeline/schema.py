@@ -88,6 +88,9 @@ def _fetch(settings):
     if not settings.is_configured:
         raise SchemaUnavailable(settings.unavailable_reason or 'Pipeline triggering is not configured.')
 
+    if settings.is_dry_run:
+        return _read_file(settings.schema_file)
+
     if not settings.ssl_verify:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -127,12 +130,37 @@ def _fetch(settings):
     except yaml.YAMLError as exc:
         raise SchemaUnavailable(f"The schema is not valid YAML: {exc}") from exc
 
+    return _validate(parsed, 'The file fetched')
+
+
+def _validate(parsed, source):
     if not isinstance(parsed, dict) or 'fields' not in parsed or 'operations' not in parsed:
         raise SchemaUnavailable(
-            "The file fetched does not look like request-schema.yaml "
+            f"{source} does not look like request-schema.yaml "
             "(no 'fields' and 'operations' at the top level)."
         )
     return parsed
+
+
+def _read_file(path):
+    """The schema from a local file, for the dry-run mode.
+
+    Re-read on every cache miss rather than held forever, so editing the schema
+    and reloading the page shows the change -- which is the point of pointing at
+    a file in the first place.
+    """
+    try:
+        with open(path, 'rb') as handle:
+            raw = handle.read()
+    except OSError as exc:
+        raise SchemaUnavailable(f"Could not read PIPELINE_SCHEMA_FILE at {path}: {exc}") from exc
+
+    try:
+        parsed = yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        raise SchemaUnavailable(f"{path} is not valid YAML: {exc}") from exc
+
+    return _validate(parsed, path)
 
 
 def get_schema(settings=None, force=False):

@@ -19,6 +19,17 @@ class PipelineSettings:
     def __init__(self, env=None):
         env = env if env is not None else os.environ
 
+        # ------------------------------------------------------------ dry run
+        # A local schema file instead of a GitLab project, and triggers that are
+        # logged rather than sent. For working on the form itself: the whole
+        # point of the dialog is the schema-driven rendering, the picklists and
+        # the conditional fields, and none of that needs a GitLab to exercise.
+        #
+        # Set PIPELINE_SCHEMA_FILE to a path and the feature turns on with no
+        # project, no token and no network. Nothing can reach GitLab in this
+        # mode -- see trigger.py, which returns before building a request.
+        self.schema_file = env.get('PIPELINE_SCHEMA_FILE', '').strip()
+
         self.url = (env.get('PIPELINE_GITLAB_URL') or env.get('GITLAB_URL') or '').rstrip('/')
         self.project_id = env.get('PIPELINE_PROJECT_ID', '')
         self.ref = env.get('PIPELINE_REF', 'main')
@@ -46,7 +57,14 @@ class PipelineSettings:
         self.allowed_group = env.get('PIPELINE_ALLOWED_GROUP', '').strip()
 
     @property
+    def is_dry_run(self):
+        """True when the schema comes from disk and nothing is ever sent."""
+        return bool(self.enabled and self.schema_file)
+
+    @property
     def is_configured(self):
+        if self.is_dry_run:
+            return True
         return bool(self.enabled and self.url and self.project_id and self.token)
 
     @property
@@ -59,6 +77,8 @@ class PipelineSettings:
         """
         if not self.enabled:
             return 'PIPELINE_ENABLED is not set to true.'
+        if self.schema_file:
+            return ''
         missing = [
             name for name, value in (
                 ('PIPELINE_GITLAB_URL (or GITLAB_URL)', self.url),

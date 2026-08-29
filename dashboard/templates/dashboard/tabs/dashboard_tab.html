@@ -43,16 +43,30 @@
               nothing here is drawn as a fraction of one.
             {% endcomment %}
             <div class="bento-card p-5 relative overflow-hidden">
-                <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-green-50 rounded-full opacity-50"></div>
-                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">CPU Requested</p>
-                <h3 class="text-3xl font-extrabold text-slate-900">[[ dashboardKpis.cpu ]] <span class="text-sm font-medium text-slate-400">Cores</span></h3>
-                <p class="text-[11px] font-semibold text-slate-400 mt-1">Limit [[ dashboardKpis.cpuLimit ]] cores</p>
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">CPU Reserved (Cores)</p>
+                <div class="flex items-baseline gap-4">
+                    <div>
+                        <p class="text-2xl font-extrabold text-slate-900 leading-none">[[ dashboardKpis.cpu ]]</p>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase mt-1">Requested</p>
+                    </div>
+                    <div class="border-l border-slate-200 pl-4">
+                        <p class="text-2xl font-extrabold text-slate-500 leading-none">[[ dashboardKpis.cpuLimit ]]</p>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase mt-1">Limit</p>
+                    </div>
+                </div>
             </div>
             <div class="bento-card p-5 relative overflow-hidden">
-                <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-indigo-50 rounded-full opacity-50"></div>
-                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Mem Requested</p>
-                <h3 class="text-3xl font-extrabold text-slate-900">[[ dashboardKpis.mem ]] <span class="text-sm font-medium text-slate-400">GB</span></h3>
-                <p class="text-[11px] font-semibold text-slate-400 mt-1">Limit [[ dashboardKpis.memLimit ]] GB</p>
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Memory Reserved (GB)</p>
+                <div class="flex items-baseline gap-4">
+                    <div>
+                        <p class="text-2xl font-extrabold text-slate-900 leading-none">[[ dashboardKpis.mem ]]</p>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase mt-1">Requested</p>
+                    </div>
+                    <div class="border-l border-slate-200 pl-4">
+                        <p class="text-2xl font-extrabold text-slate-500 leading-none">[[ dashboardKpis.memLimit ]]</p>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase mt-1">Limit</p>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -294,7 +308,7 @@
                                     <div class="p-4 flex flex-wrap gap-2">
                                         <span v-for="[op, count] in Object.entries(cm.operators || {}).sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]))" :key="op" @click="showDashboardDetail('operator', op, clusterName)" class="cursor-pointer inline-flex items-center px-2 py-1 rounded border border-slate-200 bg-white text-[10px] font-semibold text-slate-700 shadow-sm hover:border-blue-400 hover:text-blue-600 transition-colors">
                                             <span v-html="getOperatorIcon(op)" class="mr-1 scale-75 origin-left"></span>
-                                            [[ op.replace('Operator', '') ]] <span class="ml-1.5 text-[9px] text-slate-400 bg-slate-100 px-1 rounded">[[ count ]]</span>
+                                            [[ op.replace('Operator','') ]] <span class="ml-1.5 text-[9px] text-slate-400 bg-slate-100 px-1 rounded">[[ count ]]</span>
                                         </span>
                                         <span v-if="Object.keys(cm.operators || {}).length === 0" class="text-[10px] text-slate-400 italic w-full">No operators active.</span>
                                     </div>

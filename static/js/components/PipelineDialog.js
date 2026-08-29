@@ -25,6 +25,7 @@ export const PipelineDialog = {
         loading: { type: Boolean, default: false },
         loadError: { type: String, default: '' },
         result: { type: Object, default: null },
+        dryRun: { type: Boolean, default: false },
         /* A function, not an event.
          *
          * $emit returns the component instance, never a promise, so `await
@@ -55,6 +56,12 @@ export const PipelineDialog = {
             // the schema watcher can apply it once and then leave the
             // operator's typing alone on any later refresh.
             prefillApplied: false,
+            // Locked fields the operator has chosen to edit anyway. The lock is
+            // a guard against changing something by accident, not a claim that
+            // the value can never be wrong -- so every one of them can be
+            // opened, and doing so is a deliberate click that leaves the field
+            // visibly unlocked.
+            unlocked: {},
             // Errors appear once a field has been touched, so opening the form
             // is not an immediate wall of red on fields nobody has reached yet.
             touched: {},
@@ -72,6 +79,7 @@ export const PipelineDialog = {
                 this.showPayload = false;
                 this.touched = {};
                 this.prefillApplied = false;
+                this.unlocked = {};
                 this.input = {};
                 this.applyPrefill();
             },
@@ -163,6 +171,10 @@ export const PipelineDialog = {
                 out.push(`${this.nameFieldLabel} is required for an existing tenant — `
                     + 'pick one from the list, or type a new name.');
             }
+            if (this.unknownTenant) {
+                out.push(`Tenant “${this.input.tenant_name}” does not exist. `
+                    + 'Pick an existing one, or create the tenant from the Tenants directory.');
+            }
             return out;
         },
 
@@ -180,6 +192,54 @@ export const PipelineDialog = {
             return this.schema?.fields?.[this.nameField]?.label || 'Name';
         },
 
+        /* Fields the surrounding page has already decided.
+         *
+         * Opening "Add namespace" from inside a tenant answers the tenant
+         * question by the act of opening it; leaving the field editable invites
+         * someone to change it and file the request against a tenant they are
+         * not looking at. Same for a decommission opened from one namespace --
+         * the namespace is the thing that was selected.
+         *
+         * Locked fields still travel in the payload. They are display-only, not
+         * absent. */
+        locked() {
+            return new Set(this.request?.locked || []);
+        },
+
+        /* Tenant chosen from what exists, rather than typed.
+         *
+         * The Namespaces and Capsules directories are not scoped to a tenant,
+         * so the operator has to name one -- but from there they are adding to
+         * an existing tenant, never inventing one. A free-text box would accept
+         * a typo and create a second tenant one character different. */
+        tenantChoices() {
+            const clusters = this.index?.clusters || {};
+            const out = [];
+            Object.keys(clusters).forEach(cluster => {
+                Object.keys(clusters[cluster]).forEach(name => {
+                    out.push({ name, cluster, ...clusters[cluster][name] });
+                });
+            });
+            return out.sort((a, b) => a.name.localeCompare(b.name));
+        },
+
+        pickTenant() {
+            return this.request?.tenantFromIndex === true;
+        },
+
+        /* Typed something that is not a tenant.
+         *
+         * This is what makes the search box a dropdown: the datalist suggests,
+         * and this refuses. Without it a typo would sail through and the
+         * pipeline would create a second tenant one character different from
+         * the real one. */
+        unknownTenant() {
+            if (!this.pickTenant) return false;
+            const typed = this.input.tenant_name;
+            if (!typed) return false;
+            return !this.tenantChoices.some(t => t.name === typed);
+        },
+
         tenantRecord() {
             const cluster = this.index?.clusters?.[this.state.values.target_cluster];
             return (cluster && cluster[this.state.values.tenant_name]) || null;
@@ -195,6 +255,8 @@ export const PipelineDialog = {
         existingTenantNeedsName() {
             if (!['namespace.create', 'capsule.create'].includes(this.operation)) return false;
             if (!this.state.values.tenant_name || !this.nameField) return false;
+            // A locked name is one the page already chose; it cannot be missing.
+            if (this.isLocked(this.nameField)) return false;
             return !!this.tenantRecord && !this.state.values[this.nameField];
         },
 
@@ -291,9 +353,54 @@ export const PipelineDialog = {
             this.error = '';
         },
 
+        /* A note only where it explains something.
+         *
+         * "Fixed" was on every locked field, next to a padlock, saying what the
+         * padlock already said. The cluster in tenant-picker mode is different:
+         * it is not merely fixed, it followed from the tenant, and knowing that
+         * is why it changed when you picked one. */
+        lockNote(name) {
+            return (this.pickTenant && name === 'target_cluster') ? 'from tenant' : '';
+        },
+
+        isLocked(name) {
+            if (this.unlocked[name]) return false;
+            // In tenant-picker mode the cluster follows from the tenant. Siglum
+            // and cost centre are prefilled from it but stay editable -- they
+            // are the tenant's defaults for this request, not facts about it,
+            // and a namespace can legitimately differ.
+            if (this.pickTenant && name === 'target_cluster') return true;
+            return this.locked.has(name);
+        },
+
+        unlock(name) {
+            this.unlocked[name] = true;
+        },
+
         setValue(name, value) {
             this.input[name] = value;
             this.touched[name] = true;
+        },
+
+        /* Fill in what the chosen tenant already determines.
+         *
+         * Only fields this operation actually offers -- capsule.create has no
+         * namespace_name, and writing one would be rejected by the payload
+         * check on the way out. */
+        chooseTenant(name) {
+            const fields = SchemaForm.operationFields(this.schema, this.operation);
+            const tenant = this.tenantChoices.find(t => t.name === name);
+            this.input.tenant_name = name;
+            this.touched.tenant_name = true;
+            if (!tenant) return;
+            const derived = {
+                target_cluster: tenant.cluster,
+                siglum: tenant.siglum,
+                cost_center: tenant.cost_center,
+            };
+            Object.keys(derived).forEach(key => {
+                if (fields.indexOf(key) !== -1 && derived[key]) this.input[key] = derived[key];
+            });
         },
 
         /* Case folding happens on blur, not per keystroke. Rewriting the value
@@ -334,10 +441,27 @@ export const PipelineDialog = {
     },
 
     template: `
-<div v-if="open" class="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:p-8">
+<!--
+  pt-20 clears the sticky header.
+
+  The panel is z-[60] and the header is z-50, so the dialog draws over it -- and
+  with only p-4 of top padding the panel's own top edge landed inside the
+  header's 64px, which read as two chrome elements fused together rather than a
+  dialog above a page. The overlay still covers the header (it should; the page
+  behind is inert), but the panel now starts below it.
+-->
+<div v-if="open" class="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-900/40 px-4 pb-8 pt-20 sm:px-8 sm:pt-24">
   <div @click="$emit('close')" class="fixed inset-0" aria-hidden="true"></div>
 
-  <div class="relative w-full max-w-3xl bg-white rounded-2xl shadow-xl border border-slate-200 my-4"
+  <!--
+    overflow-hidden, so the corners match.
+
+    The panel is rounded on all four, but its children are square and the last
+    one painted over the bottom two -- the footer carried rounded-b-2xl, and the
+    states without a footer had nothing rounding them at all. Clipping the panel
+    is one rule instead of a corner-radius on every child that might end up last.
+  -->
+  <div class="relative w-full max-w-3xl bg-white rounded-2xl shadow-xl border border-slate-200 my-4 overflow-hidden"
        role="dialog" aria-modal="true" aria-labelledby="pipeline-dialog-title">
 
     <!-- header -->
@@ -367,13 +491,22 @@ export const PipelineDialog = {
 
     <!-- success -->
     <div v-else-if="result" class="px-6 py-8 text-center">
-      <div class="mx-auto w-10 h-10 rounded-full bg-green-100 flex items-center justify-center mb-3">
-        <svg class="w-5 h-5 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+      <div :class="['mx-auto w-10 h-10 rounded-full flex items-center justify-center mb-3', result.dry_run ? 'bg-amber-100' : 'bg-green-100']">
+        <svg :class="['w-5 h-5', result.dry_run ? 'text-amber-700' : 'text-green-700']" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
       </div>
-      <p class="text-sm font-bold text-slate-900">Pipeline #{{ result.id }} started</p>
-      <p class="text-xs text-slate-500 mt-1">
-        The change is made by the pipeline and reaches this dashboard on the next sync.
-      </p>
+      <template v-if="result.dry_run">
+        <p class="text-sm font-bold text-slate-900">Dry run — nothing was sent</p>
+        <p class="text-xs text-slate-500 mt-1">
+          The request was built and checked, then printed to the server console.
+          No pipeline was started and nothing in Git changed.
+        </p>
+      </template>
+      <template v-else>
+        <p class="text-sm font-bold text-slate-900">Pipeline #{{ result.id }} started</p>
+        <p class="text-xs text-slate-500 mt-1">
+          The change is made by the pipeline and reaches this dashboard on the next sync.
+        </p>
+      </template>
       <div class="mt-4 flex items-center justify-center gap-2">
         <a v-if="result.web_url" :href="result.web_url" target="_blank" rel="noopener"
            class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-colors">
@@ -405,8 +538,15 @@ export const PipelineDialog = {
         </div>
       </div>
 
-      <!-- what the index knows about this tenant -->
-      <div v-if="state.values.tenant_name && nameField"
+      <!--
+        What the index knows about this tenant.
+
+        Suppressed once the tenant is fixed by the page that opened the form:
+        telling someone to "pick one from the list or type a new name" under a
+        field they cannot edit is instructions for a form they are not filling
+        in. It was appearing on decommission, where there is nothing to pick.
+      -->
+      <div v-if="state.values.tenant_name && nameField && !isLocked('tenant_name') && !isLocked(nameField)"
            :class="['rounded-lg border px-3 py-2 mb-4 text-xs',
                     tenantRecord ? 'bg-slate-50 border-slate-200 text-slate-600'
                                  : 'bg-amber-50 border-amber-200 text-amber-800']">
@@ -433,8 +573,61 @@ export const PipelineDialog = {
             <div v-for="name in group.fields" :key="name"
                  :class="field(name).type === 'boolean' ? 'sm:col-span-1' : 'sm:col-span-2'">
 
+              <!--
+                Locked: decided by the page that opened this form. Rendered as
+                a read-only value with a lock, not a disabled input -- a greyed
+                box still looks like something you failed to click, where this
+                reads as a fact.
+              -->
+              <template v-if="isLocked(name)">
+                <span class="text-xs font-bold text-slate-800">{{ field(name).label || name }}</span>
+                <div class="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 h-[38px] flex items-center gap-2">
+                  <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                  <span class="text-sm font-semibold text-slate-700 truncate">{{ state.values[name] || '—' }}</span>
+                  <span v-if="lockNote(name)" class="text-[10px] font-bold text-slate-400 uppercase shrink-0">{{ lockNote(name) }}</span>
+                  <button @click="unlock(name)" type="button"
+                          class="ml-auto shrink-0 text-[11px] font-bold text-slate-500 hover:text-blue-600 underline underline-offset-2 focus-ring rounded"
+                          :title="'Edit ' + (field(name).label || name)">
+                    Edit
+                  </button>
+                </div>
+              </template>
+
+              <!--
+                Tenant: type to search, but only an existing one counts.
+
+                A plain <select> of two hundred tenants means scrolling to find
+                one you already know the name of. A datalist gives native
+                type-ahead over the same list, and the check below refuses
+                anything that is not in it -- so this searches like a text box
+                and constrains like a dropdown.
+              -->
+              <template v-else-if="pickTenant && name === 'tenant_name'">
+                <label :for="'pf-' + name" class="block">
+                  <span class="text-xs font-bold text-slate-800">{{ field(name).label || name }}<span class="text-red-600"> *</span></span>
+                  <span class="block text-[11px] text-slate-500 mt-0.5">
+                    Start typing to search {{ tenantChoices.length }} existing tenants. Its cluster is
+                    taken from the tenant; siglum and cost centre are filled in and stay editable.
+                  </span>
+                </label>
+                <input :id="'pf-' + name" type="text" list="datalist-tenant-picker"
+                       :value="input.tenant_name === undefined ? '' : input.tenant_name"
+                       @input="chooseTenant($event.target.value)"
+                       placeholder="Search tenants…"
+                       :class="['mt-1 w-full rounded-lg border px-3 text-sm font-medium text-slate-900 shadow-sm outline-none focus:ring-2 focus:ring-blue-600 h-[38px]',
+                                unknownTenant ? 'border-red-300 bg-red-50' : 'border-slate-200']">
+                <datalist id="datalist-tenant-picker">
+                  <option v-for="t in tenantChoices" :key="t.cluster + '/' + t.name"
+                          :value="t.name">{{ t.cluster }}</option>
+                </datalist>
+                <p v-if="unknownTenant" class="text-[11px] font-semibold text-red-700 mt-1">
+                  “{{ input.tenant_name }}” is not an existing tenant. Pick one from the list — to
+                  create a tenant, use New Tenant on the Tenants directory.
+                </p>
+              </template>
+
               <!-- boolean -->
-              <label v-if="field(name).type === 'boolean'"
+              <label v-else-if="field(name).type === 'boolean'"
                      class="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50 cursor-pointer">
                 <input type="checkbox" class="mt-0.5 shrink-0"
                        :checked="state.values[name] === 'true'"
@@ -468,14 +661,14 @@ export const PipelineDialog = {
                 </label>
                 <input :id="'pf-' + name"
                        :type="field(name).type === 'email' ? 'email' : (field(name).type === 'url' ? 'url' : 'text')"
-                       :list="optionsFor(name) && optionsFor(name).length ? 'pl-' + name : null"
+                       :list="optionsFor(name) && optionsFor(name).length ? 'datalist-' + name : null"
                        :placeholder="field(name).input_format === 'DD/MM/YYYY HH:mm:ss' ? 'DD/MM/YYYY HH:MM:SS' : ''"
                        :value="input[name] === undefined ? '' : input[name]"
                        @input="setValue(name, $event.target.value)"
                        @change="normaliseOnBlur(name, $event.target.value)"
                        :class="['mt-1 w-full rounded-lg border px-3 text-sm font-medium text-slate-900 shadow-sm outline-none focus:ring-2 focus:ring-blue-600 h-[38px]',
                                 errorFor(name) ? 'border-red-300 bg-red-50' : 'border-slate-200']">
-                <datalist v-if="optionsFor(name) && optionsFor(name).length" :id="'pl-' + name">
+                <datalist v-if="optionsFor(name) && optionsFor(name).length" :id="'datalist-' + name">
                   <option v-for="option in optionsFor(name)" :key="option" :value="option"></option>
                 </datalist>
               </template>
@@ -524,7 +717,10 @@ export const PipelineDialog = {
     <!-- footer -->
     <div v-if="!loading && !loadError && !result && schema"
          class="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-2xl">
-      <p class="text-[11px] text-slate-500">
+      <p v-if="dryRun" class="text-[11px] font-bold text-amber-700">
+        Dry run: the request is printed to the server console, not sent to GitLab.
+      </p>
+      <p v-else class="text-[11px] text-slate-500">
         Runs as the dashboard's service token; recorded against your account.
       </p>
       <div class="flex items-center gap-2">

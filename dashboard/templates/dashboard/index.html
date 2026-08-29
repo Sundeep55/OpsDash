@@ -73,7 +73,8 @@
           lapsed waiver is only a problem if nobody notices it, so it should not
           live behind a tab someone has to choose.
         {% endcomment %}
-        <expiry-banner v-if="hasData" :cluster="globalClusterFilter"></expiry-banner>
+        <expiry-banner v-if="hasData" :cluster="globalClusterFilter"
+                       @select="jumpTo('namespaces', $event)"></expiry-banner>
 
         <div v-if="hasData" class="transition-all duration-300">
             {% include 'dashboard/tabs/dashboard_tab.html' %}
@@ -101,6 +102,7 @@
         :loading="pipelineLoading"
         :load-error="pipelineLoadError"
         :result="pipelineResult"
+        :dry-run="pipelineDryRun"
         :on-submit="submitPipeline"
         @close="closePipeline"></pipeline-dialog>
 </div>

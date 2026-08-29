@@ -225,6 +225,20 @@ class RouteException(models.Model):
     # renewal through ITSM.
     WARNING_DAYS = 30
 
+    # How long a lapsed grant is still something to act on.
+    #
+    # The record itself is never removed or edited to quiet the dashboard --
+    # that would be tampering with the audit trail, and the grant is in Git
+    # precisely so it stays on the record. What is bounded is the *alerting*: a
+    # waiver that lapsed two weeks ago needs chasing, one that lapsed in 2021 is
+    # history, and a banner that keeps counting up towards "lapsed 1,800 days
+    # ago" is noise that guarantees nobody reads the one that lapsed yesterday.
+    #
+    # Two weeks matches how the estate actually works: expiry is visible for
+    # thirty days beforehand, so anything still lapsed a fortnight later has
+    # already been through a full notice period.
+    EXPIRED_NOTICE_DAYS = 14
+
     @property
     def effective_expires_at(self):
         if self.expires_at:
@@ -240,7 +254,42 @@ class RouteException(models.Model):
 
     @property
     def days_active(self):
-        return (date.today() - self.granted_at).days if self.granted_at else 0
+        """How long the grant has been in force -- not how long ago it started.
+
+        This used to be today - granted_at with no ceiling, so a grant that ran
+        its 90 days and lapsed in March reported "200 days active" in September.
+        It was never active for 200 days; it was active for 90 and has been dead
+        since. A waiver's own page overstating how long the waiver has applied is
+        exactly the wrong way round.
+
+        Capped at the expiry date, so for a lapsed grant this is its full term.
+        """
+        if not self.granted_at:
+            return 0
+        end = date.today()
+        expiry = self.effective_expires_at
+        if expiry and expiry < end:
+            end = expiry
+        return max((end - self.granted_at).days, 0)
+
+    @property
+    def days_since_expiry(self):
+        """Days since the grant lapsed, or None while it is still in force.
+
+        Used to decide whether a lapse is recent enough to still be raised. It
+        is deliberately NOT published to the UI: a page that says "lapsed 1,043
+        days ago" is counting up for ever and turns a closed piece of history
+        into a number that grows. What the screen says is "lapsed", and the date
+        it lapsed on, both of which stop changing.
+        """
+        remaining = self.days_remaining
+        return -remaining if remaining is not None and remaining < 0 else None
+
+    @property
+    def is_recent_lapse(self):
+        """Expired within the notice window -- i.e. still worth chasing."""
+        since = self.days_since_expiry
+        return since is not None and since <= self.EXPIRED_NOTICE_DAYS
 
     @property
     def status(self):

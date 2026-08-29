@@ -183,39 +183,83 @@ createApp({
             prefill: clusterPrefill(globalCluster.value),
         });
 
-        // From the Capsules tab, where the operator has already said which kind
-        // of thing they want. The tenant is still theirs to pick or invent.
+        /* From a directory, which is not scoped to a tenant.
+         *
+         * The tenant is chosen from the ones that exist rather than typed: from
+         * here the operator is adding to a tenant, never inventing one, and a
+         * free-text box would accept a typo and quietly create a second tenant
+         * one character different. Choosing it fills in the cluster, siglum and
+         * cost centre, which are properties of the tenant the dashboard already
+         * knows -- retyping them is friction and a chance to disagree with Git.
+         *
+         * Creating a *new* tenant is still possible; it is the "New Tenant"
+         * button on the Tenants directory, where typing a new name is the
+         * point. */
+        const addNamespaceStandalone = () => pipeline.open({
+            operation: 'namespace.create',
+            choices: ['namespace.create', 'devspace.create', 'cso.create'],
+            title: 'New namespace',
+            tenantFromIndex: true,
+            prefill: {},
+        });
+
         const newCapsule = () => pipeline.open({
             operation: 'capsule.create',
             title: 'New capsule',
-            prefill: clusterPrefill(globalCluster.value),
+            tenantFromIndex: true,
+            prefill: {},
+        });
+
+        /* From inside one tenant.
+         *
+         * Opening the form from a tenant page answers the tenant question by
+         * the act of opening it, so the tenant and its cluster are fixed --
+         * leaving them changeable invites filing the request against a tenant
+         * nobody is looking at.
+         *
+         * The siglum and cost centre are filled in from that tenant but stay
+         * editable. They are the tenant's defaults for this request rather than
+         * facts about it: a namespace can legitimately carry its own siglum
+         * (the parser has a whole fallback chain for exactly that), and a
+         * cost centre can differ per request. Locking them would have made the
+         * form refuse a case the estate already supports. */
+        const tenantContext = tenant => ({
+            prefill: {
+                target_cluster: tenant.cluster,
+                tenant_name: tenant.tenant_name || tenant.name,
+                siglum: tenant.siglum,
+                cost_center: tenant.cost_center,
+            },
+            locked: ['target_cluster', 'tenant_name'],
         });
 
         const addNamespace = tenant => pipeline.open({
             operation: 'namespace.create',
             choices: ['namespace.create', 'devspace.create', 'cso.create'],
             title: `Add to ${tenant.tenant_name || tenant.name}`,
-            prefill: {
-                target_cluster: tenant.cluster,
-                tenant_name: tenant.tenant_name || tenant.name,
-                siglum: tenant.siglum,
-            },
+            ...tenantContext(tenant),
         });
 
         const addCapsule = tenant => pipeline.open({
             operation: 'capsule.create',
             title: `Add capsule to ${tenant.tenant_name || tenant.name}`,
-            prefill: {
-                target_cluster: tenant.cluster,
-                tenant_name: tenant.tenant_name || tenant.name,
-                siglum: tenant.siglum,
-            },
+            ...tenantContext(tenant),
         });
 
+        /* From inside one namespace or capsule.
+         *
+         * Which object this acts on was settled by opening it, so its identity
+         * -- cluster, tenant, and its own name -- is fixed. A decommission form
+         * that let you edit the namespace name is a form that can retire the
+         * wrong namespace.
+         *
+         * The lifecycle is deliberately NOT locked: changing it is one of the
+         * things an update is for. */
         const updateNamespace = namespace => pipeline.open({
             operation: 'namespace.update',
             choices: ['namespace.update', 'mirror.create', 'namespace.decommission'],
             title: `Change ${namespace.name}`,
+            locked: ['target_cluster', 'tenant_name', 'namespace_name'],
             prefill: {
                 target_cluster: namespace.cluster,
                 tenant_name: namespace.tenant,
@@ -230,6 +274,7 @@ createApp({
             operation: 'capsule.update',
             choices: ['capsule.update', 'capsule.decommission'],
             title: `Change ${capsule.name}`,
+            locked: ['target_cluster', 'tenant_name', 'sub_tenant_name'],
             prefill: {
                 target_cluster: capsule.cluster,
                 tenant_name: capsule.tenant,
@@ -256,32 +301,6 @@ createApp({
             users.fetchPage(1);
             capsules.fetchData();
             siglums.fetchData();
-        });
-
-        /* The capsule's remaining provisioner blocks, ready to render.
-         *
-         * Formatted here rather than in the template because the shape is not
-         * known ahead of time: it is whatever the capsule chart carries. A short
-         * summary is derived per block so the page is scannable without opening
-         * every one. */
-        const capsuleConfigBlocks = computed(() => {
-            const cfg = selection.selected.value.capsule?.config;
-            if (!cfg) return [];
-            return Object.keys(cfg).sort().map(key => {
-                const value = cfg[key];
-                let summary = '';
-                if (Array.isArray(value)) {
-                    summary = value.length ? `${value.length} entr${value.length === 1 ? 'y' : 'ies'}` : 'empty';
-                } else if (value && typeof value === 'object') {
-                    const enabled = value.enabled ?? value.enable;
-                    const n = Object.keys(value).length;
-                    summary = enabled === undefined ? `${n} setting${n === 1 ? '' : 's'}`
-                                                    : (enabled ? 'enabled' : 'disabled');
-                } else {
-                    summary = String(value);
-                }
-                return { key, summary, pretty: JSON.stringify(value, null, 2) };
-            });
         });
 
         // ---------------------------------------------------------- navigation
@@ -359,6 +378,29 @@ createApp({
             namespaces.items.value.length > 0 || tenants.items.value.length > 0 || analytics.analytics.value !== null
         );
 
+        /* A CSV export URL carrying the filters currently on screen.
+         *
+         * The export should be what the person is looking at. Handing back the
+         * whole estate when they had narrowed to one cluster is the kind of
+         * thing that gets noticed only after the spreadsheet has been sent on.
+         *
+         * A plain href rather than a fetch: the browser saves the file, the
+         * session cookie authenticates it, and there is no blob to build or
+         * revoke. `All` and empty values are dropped so the URL stays readable.
+         */
+        const exportUrl = (kind, params = {}) => {
+            const query = new URLSearchParams();
+            Object.entries(params).forEach(([key, value]) => {
+                if (value === undefined || value === null || value === '' || value === ALL) return;
+                // The status pill's own vocabulary: only 'all' means anything
+                // to the API, since active-only is the default.
+                if (key === 'status' && value !== 'all') return;
+                query.set(key, value);
+            });
+            const suffix = query.toString();
+            return `/api/v2/${kind}/export/${suffix ? '?' + suffix : ''}`;
+        };
+
         // An icon mapping supplies either a vendored image path or inline svg;
         // see the notes in ui_config.js for why both exist.
         const getOperatorIcon = name => {
@@ -387,7 +429,7 @@ createApp({
             fetchNamespacesList: namespaces.fetchPage, namespacesLoading: namespaces.isLoading,
             tenantsList: tenants.items, tenantPagination: tenants.pagination,
             fetchTenantsList: tenants.fetchPage, tenantsLoading: tenants.isLoading,
-            capsulesList: capsules.data, capsulesLoading: capsules.isLoading, capsuleConfigBlocks,
+            capsulesList: capsules.data, capsulesLoading: capsules.isLoading,
             capsuleLifecycles: analytics.capsuleLifecycles,
             capsuleTotal: computed(() => {
                 const c = analytics.capsuleLifecycles.value;
@@ -400,14 +442,16 @@ createApp({
             // selection + drilldown
             selected: selection.selected, selectItem: selection.select, detailLoading: selection.isLoading,
             jumpTo, dashboardDetail, drilldownNamespaces, showDashboardDetail,
-            getOperatorIcon,
+            getOperatorIcon, exportUrl,
             // pipeline triggering
             pipelineAvailable: pipeline.available,
             pipelineRequest: pipeline.request, pipelineSchema: pipeline.schema,
             pipelineIndex: pipeline.index, pipelineLoading: pipeline.loading,
             pipelineLoadError: pipeline.loadError, pipelineResult: pipeline.result,
+            pipelineDryRun: computed(() => pipeline.config.value.dry_run === true),
             closePipeline: pipeline.close, submitPipeline,
-            addTenant, addNamespace, addCapsule, newCapsule, updateNamespace, updateCapsule,
+            addTenant, addNamespace, addNamespaceStandalone, addCapsule, newCapsule,
+            updateNamespace, updateCapsule,
         };
     },
 }).mount('#app');

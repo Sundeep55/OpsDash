@@ -26,6 +26,26 @@
             <button @click="search.namespaceStatus = 'decomm'" :class="search.namespaceStatus === 'decomm' ? 'bg-white text-slate-900 shadow-sm border-slate-200' : 'text-slate-500 hover:text-slate-700'" class="flex-1 md:flex-none flex items-center justify-center px-4 rounded-full text-xs font-bold transition-all outline-none border border-transparent"><span class="w-1.5 h-1.5 rounded-full bg-red-500 mr-2"></span> Decomm</button>
             <button @click="search.namespaceStatus = 'all'" :class="search.namespaceStatus === 'all' ? 'bg-white text-slate-900 shadow-sm border-slate-200' : 'text-slate-500 hover:text-slate-700'" class="flex-1 md:flex-none flex items-center justify-center px-4 rounded-full text-xs font-bold transition-all outline-none border border-transparent">All</button>
         </div>
+
+        {% comment %}
+          Missing entirely: the Tenants and Capsules directories both had their
+          "New" button and this one did not, so the most common request of all
+          -- add a namespace -- was only reachable by first opening the tenant
+          it belongs to.
+
+          No tenant is prefilled from here, because the directory is not scoped
+          to one; the operator picks it in the form, from the live picklist.
+        {% endcomment %}
+        <a :href="exportUrl('namespaces', { search: search.namespace, cluster: search.namespaceCluster, status: search.namespaceStatus })"
+           class="shrink-0 h-[42px] inline-flex items-center justify-center gap-2 rounded-full bg-white border border-slate-200 px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-all focus-ring" title="Namespaces as CSV, matching the current filters">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            Export CSV
+        </a>
+        <button v-if="pipelineAvailable" @click="addNamespaceStandalone()" type="button"
+                class="shrink-0 w-full md:w-auto h-[42px] inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all focus-ring">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+            New Namespace
+        </button>
     </div>
 
     <div class="flex flex-col sm:flex-row sm:items-center gap-4 bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm overflow-x-auto relative z-0">

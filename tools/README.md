@@ -127,3 +127,47 @@ The printed summary is what was written to disk. The sync will report slightly
 more namespaces than that: a service mesh names dataplane members that do not
 otherwise exist and the walk creates them, which is the behaviour being
 exercised rather than a miscount.
+
+### Driving the trigger form without a GitLab
+
+`PIPELINE_SCHEMA_FILE` puts the pipeline feature into a dry run: the schema is
+read from a local file, and pressing "Start pipeline" prints the request to the
+server console instead of sending it. There is no code path from that mode to
+the network — `trigger()` returns before a request object is built.
+
+Generate an estate together with a matching schema:
+
+```bash
+python3 tools/demo_estate.py /tmp/demo-estate --schema /tmp/demo-schema.yaml
+```
+
+`--schema` copies `request-schema.yaml` with `target_cluster` repointed at the
+clusters it just generated, so the form's tenant and namespace picklists resolve
+against the estate. It is edited as text rather than parsed and re-emitted,
+because the schema's comments are the documentation for every field and a YAML
+round trip would drop all of them.
+
+```bash
+export DATABASE_PATH=/tmp/demo.sqlite3
+export PIPELINE_ENABLED=true PIPELINE_SCHEMA_FILE=/tmp/demo-schema.yaml
+python manage.py runserver 8862
+```
+
+The dialog says "Dry run" in its footer and on the confirmation, so a request
+that went nowhere is never mistaken for one that did. Output looks like:
+
+```
+========================================================================
+PIPELINE DRY RUN #1 -- nothing was sent to GitLab
+  OPERATION    = namespace.create
+  TRIGGERED_BY = demo <demo@example.com>
+  REQUEST_PAYLOAD =
+      namespace_name  = anvil-reports
+      ...
+  (594 bytes as one CI input value)
+========================================================================
+```
+
+Printed rather than logged at DEBUG: reading the payload is the entire reason
+the mode exists, and it prints only when the mode is on, so a normal deployment
+is unaffected.

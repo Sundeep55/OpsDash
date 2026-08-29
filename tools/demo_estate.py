@@ -30,7 +30,9 @@ that looks fine with three rows is not evidence of anything.
 """
 import argparse
 import os
+import pathlib
 import random
+import re
 import shutil
 from datetime import date, timedelta
 
@@ -543,6 +545,18 @@ def main():
     parser.add_argument('--seed', type=int, default=20260829)
     parser.add_argument('--domain', default='dcs.example.com',
                         help='label domain; the chart writes <domain>/lifecycle')
+    parser.add_argument(
+        '--schema',
+        help=('Also write a copy of request-schema.yaml whose target_cluster '
+              'options are the clusters generated here, for PIPELINE_SCHEMA_FILE. '
+              'Defaults to the schema in pipelineRepoReferences; pass --schema-source '
+              'to use another.'),
+    )
+    parser.add_argument(
+        '--schema-source',
+        default=str(pathlib.Path(__file__).resolve().parent.parent
+                    / 'pipelineRepoReferences' / 'namespaceProvRepoRef' / 'request-schema.yaml'),
+    )
     args = parser.parse_args()
 
     estate = Estate(args.outdir, args.tenants, args.seed, args.domain)
@@ -574,7 +588,38 @@ def main():
     print("The sync will report slightly more namespaces than listed above: a service")
     print("mesh names dataplane members that do not otherwise exist, and the walk")
     print("creates them. That is the behaviour being exercised, not a miscount.")
+    if args.schema:
+        _write_demo_schema(args.schema_source, args.schema, ['cluster-a', 'cluster-b'])
+        print(f"\nWrote {args.schema} — a request-schema.yaml whose target_cluster")
+        print("options are the clusters above, so the trigger form's tenant and")
+        print("namespace picklists resolve against this estate. Use it with:")
+        print(f"  PIPELINE_ENABLED=true PIPELINE_SCHEMA_FILE={args.schema}")
+        print("  (dry run: requests are printed to the console, never sent)")
+
     print(f"\nLoad it:\n  python manage.py sync_gitops --repo-path {args.outdir}")
+
+
+def _write_demo_schema(source, target, clusters):
+    """Copy the pipeline schema, repointing target_cluster at the demo clusters.
+
+    Edited as text rather than parsed and re-emitted: the schema is heavily
+    commented and those comments are the documentation for every field. Round
+    tripping it through a YAML loader would silently throw all of them away.
+    """
+    raw = pathlib.Path(source).read_text()
+    options = '[' + ', '.join(clusters) + ']'
+    default = f'"{clusters[0]}"'
+
+    # Only inside the target_cluster block, which runs to the next field at the
+    # same indentation.
+    def patch(match):
+        block = match.group(0)
+        block = re.sub(r'^(\s*)options:.*$', rf'\g<1>options: {options}', block, flags=re.M)
+        block = re.sub(r'^(\s*)default:.*$', rf'\g<1>default: {default}', block, flags=re.M)
+        return block
+
+    patched = re.sub(r'^  target_cluster:\n(?:^(?:    .*)?\n)*', patch, raw, flags=re.M)
+    pathlib.Path(target).write_text(patched)
 
 
 if __name__ == '__main__':
