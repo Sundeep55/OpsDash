@@ -39,6 +39,10 @@ NAMESPACE_COLUMNS = (
 def _empty_cluster_resources():
     return {
         "cpu_req": 0, "cpu_limit": 0, "mem_req": 0, "mem_limit": 0,
+        # Tenants owning at least one namespace or capsule in this cluster.
+        # Counted as a set rather than a running total because a tenant is
+        # reached once per namespace and would otherwise be counted that often.
+        "tenants": set(),
         # Capsules are counted, not resource-summed: their quota is shared
         # across namespaces the estate does not track, so adding it to the
         # namespace totals would double-count against the same allocation.
@@ -117,6 +121,12 @@ class GlobalAnalyticsView(APIView):
                 "capsules": capsules.count(),
                 "cpu_req": 0,
                 "mem_req": 0,
+                # Limits alongside requests. A request is what the namespace is
+                # guaranteed; a limit is what it may burst to. Showing only the
+                # request told half the story -- an estate can be comfortably
+                # within its requests and still be committed to twice that.
+                "cpu_limit": 0,
+                "mem_limit": 0,
             },
             "lifecycles": {"dev": 0, "prod": 0, "devspace": 0, "egress": 0, "unassigned": 0},
             "capsule_lifecycles": {"dev": 0, "prod": 0, "unassigned": 0},
@@ -131,16 +141,20 @@ class GlobalAnalyticsView(APIView):
         # kept in a separate breakdown rather than folded into `lifecycles`,
         # because that one is a namespace count that several views total against
         # -- adding capsules to it would silently change every one of them.
-        for cluster_name, lifecycle, total in (
-            capsules.values_list('cluster__name', 'lifecycle').annotate(total=Count('id'))
+        for cluster_name, tenant_name, lifecycle in (
+            capsules.values_list('cluster__name', 'tenant__name', 'lifecycle')
         ):
             bucket = (lifecycle or '').strip().lower() or 'unassigned'
             if bucket not in ('dev', 'prod'):
                 bucket = 'unassigned'
             per_cluster = analytics["cluster_resources"][cluster_name]
-            per_cluster["capsules"] += total
-            per_cluster["capsule_lifecycles"][bucket] += total
-            analytics["capsule_lifecycles"][bucket] += total
+            per_cluster["capsules"] += 1
+            per_cluster["capsule_lifecycles"][bucket] += 1
+            analytics["capsule_lifecycles"][bucket] += 1
+            # A tenant whose only presence in this cluster is a capsule still
+            # counts as a tenant here.
+            if tenant_name:
+                per_cluster["tenants"].add(tenant_name)
 
         for row in namespaces.values_list(*NAMESPACE_COLUMNS).iterator():
             (cluster_name, tenant_name, ns_siglum, tenant_siglum, lifecycle,
@@ -153,14 +167,19 @@ class GlobalAnalyticsView(APIView):
             analytics["lifecycles"][bucket] += 1
             per_cluster["lifecycles"][bucket] += 1
 
-            cpu_r = parse_cpu(cpu_req)
-            mem_r = parse_mem_gi(mem_req)
+            if tenant_name:
+                per_cluster["tenants"].add(tenant_name)
+
+            cpu_r, cpu_l = parse_cpu(cpu_req), parse_cpu(cpu_limit)
+            mem_r, mem_l = parse_mem_gi(mem_req), parse_mem_gi(mem_limit)
             analytics["global_kpis"]["cpu_req"] += cpu_r
+            analytics["global_kpis"]["cpu_limit"] += cpu_l
             analytics["global_kpis"]["mem_req"] += mem_r
+            analytics["global_kpis"]["mem_limit"] += mem_l
             per_cluster["cpu_req"] += cpu_r
-            per_cluster["cpu_limit"] += parse_cpu(cpu_limit)
+            per_cluster["cpu_limit"] += cpu_l
             per_cluster["mem_req"] += mem_r
-            per_cluster["mem_limit"] += parse_mem_gi(mem_limit)
+            per_cluster["mem_limit"] += mem_l
 
             # Same resolution as Namespace.effective_siglum, done on flat columns.
             siglum = ns_siglum or tenant_siglum
@@ -181,6 +200,8 @@ class GlobalAnalyticsView(APIView):
 
         _finalise_tree(analytics["siglum_tree"])
         for per_cluster in analytics["cluster_resources"].values():
+            # Set -> count, the same way the siglum tree finalises its own.
+            per_cluster["tenants"] = len(per_cluster["tenants"])
             per_cluster["operators"] = dict(
                 sorted(per_cluster["operators"].items(), key=lambda kv: kv[1], reverse=True)
             )

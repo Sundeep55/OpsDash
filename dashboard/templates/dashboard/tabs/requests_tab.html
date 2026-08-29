@@ -1,40 +1,83 @@
+{% comment %}
+  ITSM tickets and what each one produced.
+
+  This used to read tenant tickets only, so a ticket showed the tenant it
+  created and nothing else -- and a ticket that added a namespace to an existing
+  tenant showed nothing at all, because no tenant carried it. It now gathers
+  every record that names a ticket: tenants, namespaces, capsules, and the route
+  exceptions granted under their own security ticket.
+
+  Each entry links to the thing it made, so a ticket answers "what happened
+  here" without opening four tabs to find out.
+{% endcomment %}
 <div v-show="activeTab === 'requests'">
-    <div class="mb-6 relative max-w-xl">
-        <svg class="absolute left-3.5 top-3 h-5 w-5 text-slate-400" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-        <input v-model="search.request" type="text" class="pl-11 block w-full rounded-xl border-0 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-slate-900 sm:text-sm font-medium transition-all" placeholder="Search Request ID (e.g., REQ000000)...">
+    <div class="mb-6 flex flex-wrap gap-4 items-center">
+        <div class="relative flex-1 max-w-xl">
+            <svg class="absolute left-3.5 top-3 h-5 w-5 text-slate-400" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+            <input v-model="search.request" type="text" class="pl-11 block w-full rounded-xl border-0 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-slate-900 sm:text-sm font-medium transition-all" placeholder="Search Request ID (e.g., REQ000000)...">
+        </div>
+        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            [[ filteredRequests.length ]] ticket[[ filteredRequests.length === 1 ? '' : 's' ]]
+        </span>
     </div>
+
     <div class="data-table-wrapper">
         <table class="data-table">
             <thead><tr><th>Request ID</th><th>Resources Provisioned Under Ticket</th></tr></thead>
             <tbody>
                 <tr v-for="req in filteredRequests" :key="req.id">
-                    <td class="font-bold text-slate-900 align-top pt-5 flex items-center gap-2 w-48 border-b-0">
-                        <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"></path></svg>
-                        [[ req.id ]]
+                    <td class="align-top pt-5 w-56 border-b-0">
+                        <div class="font-bold text-slate-900 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"></path></svg>
+                            <span class="font-mono">[[ req.id ]]</span>
+                        </div>
+                        <div class="flex flex-wrap gap-1 mt-2">
+                            <span v-for="(count, kind) in req.counts" :key="kind" class="badge badge-slate !m-0 !px-1.5 !py-0.5 text-[10px]">
+                                [[ count ]] [[ kind ]][[ count === 1 ? '' : 's' ]]
+                            </span>
+                        </div>
                     </td>
                     <td class="pt-4 pb-4">
-                        <ul class="space-y-3">
-                            <li v-for="res in req.data" class="flex flex-col sm:flex-row sm:items-center gap-2">
-                                <span class="badge badge-slate w-28 justify-center !m-0">[[ res.type ]]</span> 
-                                
+                        <ul class="space-y-2.5">
+                            <li v-for="res in req.data" :key="res.type + res.name" class="flex flex-col sm:flex-row sm:items-center gap-2">
+                                <span :class="['badge w-32 justify-center !m-0 shrink-0',
+                                               res.type === 'Capsule' ? '!bg-amber-100 !text-amber-800 !border-amber-200'
+                                             : res.type === 'Route exception' ? '!bg-red-100 !text-red-700 !border-red-200'
+                                             : 'badge-slate']">[[ res.type ]]</span>
+
                                 <a v-if="res.type === 'Tenant'" @click="jumpTo('tenants', res.name)" class="entity-link">
                                     <svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
                                     [[ res.name ]]
                                 </a>
-                                
-                                <a v-else-if="res.type === 'Namespace' || res.type === 'Decommission'" @click="jumpTo('namespaces', res.name)" class="entity-link">
+
+                                <a v-else-if="res.type === 'Capsule'" @click="jumpTo('capsules', res.name)" class="entity-link">
+                                    <svg class="entity-icon !text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                                    [[ res.name ]]
+                                </a>
+
+                                <a v-else @click="jumpTo('namespaces', res.name)" class="entity-link">
                                     <svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
                                     [[ res.name ]]
                                 </a>
-                                
-                                <span v-else class="text-sm font-medium text-slate-700 flex items-center gap-2">
-                                    [[ res.name ]] 
-                                    <span class="text-xs text-slate-400 font-normal ml-2 flex items-center">
-                                        (via <a @click="jumpTo('namespaces', res.namespace)" class="entity-link ml-1"><svg class="entity-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>[[ res.namespace ]]</a>)
+
+                                <span class="flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+                                    <span v-if="res.tenant && res.type !== 'Tenant'">in [[ res.tenant ]]</span>
+                                    <span v-if="res.cluster" class="font-mono">· [[ res.cluster ]]</span>
+                                    <span v-if="res.lifecycle" :class="['badge !m-0 !px-1.5 !py-0.5 text-[10px]', res.lifecycle.toLowerCase() === 'prod' ? 'badge-green' : 'badge-blue']">[[ res.lifecycle.toUpperCase() ]]</span>
+                                    <span v-if="res.status" :class="['badge !m-0 !px-1.5 !py-0.5 text-[10px]', res.status === 'expired' ? 'badge-red' : res.status === 'expiring' ? '!bg-amber-100 !text-amber-800 !border-amber-200' : 'badge-green']">
+                                        [[ res.status ]]<span v-if="res.expires_at"> · [[ res.expires_at ]]</span>
                                     </span>
+                                    <span v-if="res.decommissioned" class="badge badge-red !m-0 !px-1.5 !py-0.5 text-[10px]">Decommissioned</span>
                                 </span>
                             </li>
                         </ul>
+                    </td>
+                </tr>
+
+                <tr v-if="!filteredRequests.length">
+                    <td colspan="2" class="text-center italic text-slate-500 py-10 bg-slate-50">
+                        No tickets found. A ticket appears here once a tenant, namespace, capsule or
+                        route exception in Git records its id.
                     </td>
                 </tr>
             </tbody>

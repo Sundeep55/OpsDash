@@ -318,9 +318,34 @@ class NetworkConnection(models.Model):
     flows = models.JSONField(default=list)
 
 class UserAccess(models.Model):
-    namespace = models.ForeignKey(Namespace, on_delete=models.CASCADE, related_name='user_accesses')
+    """One person's access to one namespace or one capsule.
+
+    Belongs to exactly one of the two, the same shape CustomResource already
+    uses. Capsules carry project_owner_config / project_user_config blocks
+    identical to a namespace's, but before this there was nowhere to put them:
+    they were stashed on Capsule as JSON lists, which meant the Users directory,
+    the user detail page and the siglum view could not see capsule membership at
+    all. Someone with access to three capsules and no namespaces did not appear
+    in the dashboard as having access to anything.
+    """
+    namespace = models.ForeignKey(
+        Namespace, on_delete=models.CASCADE, related_name='user_accesses',
+        null=True, blank=True,
+    )
+    capsule = models.ForeignKey(
+        'Capsule', on_delete=models.CASCADE, related_name='user_accesses',
+        null=True, blank=True,
+    )
     email = models.EmailField()
     role = models.CharField(max_length=100)
+
+    @property
+    def target(self):
+        return self.namespace or self.capsule
+
+    @property
+    def kind(self):
+        return 'namespace' if self.namespace_id else 'capsule'
 
 # --- NEW: Shared System State for Container Syncing ---
 class SystemSyncStatus(models.Model):

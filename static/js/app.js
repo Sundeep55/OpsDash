@@ -116,7 +116,7 @@ createApp({
 
         const siglums = useSearchList({
             endpoint: '/api/v2/siglums/',
-            initial: { siglums: [], namespaces: [], tenants: [] },
+            initial: { siglums: [], namespaces: [], tenants: [], capsules: [] },
             onError,
             buildParams: () => ({
                 search: search.value.siglum,

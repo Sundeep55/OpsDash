@@ -210,8 +210,18 @@ namespace-provisioner:
         # A capsule: a delegated slice whose own namespaces the estate does not
         # track. Deliberately common enough here to fill a directory, because
         # the capsule tab and the dashboard split are new and need real rows.
+        capsule_entries = []
         if rng.random() < 0.28:
-            self.build_capsule(base, tenant, siglum, cluster)
+            capsule_name = self.build_capsule(base, tenant, siglum, cluster)
+            # The pipeline records capsules under active_sub_tenants, and that
+            # is the only place their ITSM ticket and requester live -- the
+            # values file carries neither. Without these entries every capsule
+            # showed a blank ticket and never appeared under a request.
+            capsule_entries.append(
+                f'  - name: {capsule_name}\n'
+                f'    request_ticket: {self.ticket()}\n'
+                f'    requester: {self.person()}'
+            )
 
         mirrors = ''
         if rng.random() < 0.25 and namespaces:
@@ -231,6 +241,7 @@ requester: {self.person()}
 tenant_request_ticket: {self.ticket()}
 active_namespaces:
 {chr(10).join(meta_entries)}
+{('active_sub_tenants:' + chr(10) + chr(10).join(capsule_entries)) if capsule_entries else ''}
 {('decommissioned_namespaces:' + chr(10) + chr(10).join(decommissioned)) if decommissioned else ''}
 {mirrors}
 """)
@@ -407,6 +418,14 @@ service-mesh:
         if lifecycle:
             labels.insert(0, f'    {self.domain}/lifecycle: {lifecycle}')
 
+        # Both were unconditional, so every capsule in the sample estate carried
+        # an EGRESS chip and a Harbor chip -- which made the list look like the
+        # UI was broken when it was the data that was uniform. A feature that is
+        # on for everything is indistinguishable from one that is not modelled.
+        egress = (f'  globalEgressIpName: router-{cluster[-1]}-{rng.randint(1, 3)}\n'
+                  if rng.random() < 0.25 else '')
+        harbor = rng.random() < 0.55
+
         self.write(f'{base}/{name}/values.yaml', f"""
 tenant-provisioner:
   requiredLabels:
@@ -415,11 +434,10 @@ tenant-provisioner:
     {self.domain}/cost_center: {self.cost_center()}
   additionalAnnotations:
     tenant_owner: {self.person()}
-  globalEgressIpName: router-{cluster[-1]}-{rng.randint(1, 3)}
-  resourceQuota:{self.quota(scale=2)}
+{egress}  resourceQuota:{self.quota(scale=2)}
   harborOnboardingConfig:
-    enable: true
-    storageQuota: {rng.choice([100, 200, 500])}
+    enable: {'true' if harbor else 'false'}
+    storageQuota: {rng.choice([100, 200, 500]) if harbor else 0}
   limitRange:
     containerCPU: "4"
     containerRAM: 8Gi
@@ -443,7 +461,7 @@ dependencies:
   - name: dcs-tenant-provisioner
     version: 1.4.0
 """)
-        if rng.random() < 0.3:
+        if rng.random() < 0.45:
             self.write(f'{base}/{name}/templates/policy.yaml', f"""
 apiVersion: v1
 kind: ResourceQuota
@@ -452,7 +470,17 @@ metadata:
 spec:
   hard:
     pods: "200"
+    services: "50"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {name}-default-deny
+spec:
+  podSelector: {{}}
+  policyTypes: [Ingress]
 """)
+        return name
 
     def build_egress_tenant(self, cluster):
         letter = cluster[-1]

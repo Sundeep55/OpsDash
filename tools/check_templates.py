@@ -84,13 +84,41 @@ class TablePlacementChecker(HTMLParser):
 
 
 def check_file(path):
-    text = DJANGO_TAG.sub('', path.read_text(encoding='utf-8'))
+    raw = path.read_text(encoding='utf-8')
+    # The hash-comment check has to see the raw source: DJANGO_TAG.sub strips
+    # template tags, comments included, so running it on the stripped text finds
+    # nothing by construction.
+    text = DJANGO_TAG.sub('', raw)
     checker = TablePlacementChecker()
     try:
         checker.feed(text)
     except Exception as exc:  # a malformed fragment should not mask real findings
-        return [(0, f'could not parse: {exc}')]
-    return checker.findings
+        return [(0, f'could not parse: {exc}')] + _unclosed_hash_comments(raw)
+    return checker.findings + _unclosed_hash_comments(raw)
+
+
+def _unclosed_hash_comments(text):
+    """Multi-line {# #} comments, which Django renders as literal text.
+
+    Django's hash comment is a single-line form: the lexer matches {# ... #}
+    within one line and nothing else. Spread one over two lines and it is not a
+    comment at all -- it is content, and the note you wrote to explain a piece of
+    markup gets printed on the page in front of the user. That is exactly how one
+    reached the namespace detail page.
+
+    Nothing else catches it: the page serves 200, the template renders, and only
+    a person reading the screen notices.
+    """
+    findings = []
+    for number, line in enumerate(text.splitlines(), 1):
+        if '{#' in line and '#}' not in line.split('{#', 1)[1]:
+            findings.append((
+                number,
+                'multi-line {# #} comment -- Django only matches the hash form '
+                'on a single line, so this renders as visible text. Use '
+                '{% comment %} ... {% endcomment %}.',
+            ))
+    return findings
 
 
 def main(argv):

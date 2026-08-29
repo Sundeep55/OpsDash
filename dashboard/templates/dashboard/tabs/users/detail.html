@@ -1,23 +1,72 @@
+{% comment %}
+  One person's access across the estate.
+
+  The table used to be namespace-only, with a "Namespace" column heading, so a
+  capsule membership had nowhere to go and was simply absent. Rather than add a
+  second table, the one table now carries both and gains a Type column: it is
+  one question -- what can this person reach -- and splitting it in two would
+  make the reader add the halves up themselves.
+
+  Rows are namespaces first, then capsules, each alphabetical, so the list has a
+  stable shape rather than interleaving two kinds of thing.
+{% endcomment %}
 <button @click="selected.user = null" class="group mb-6 text-sm font-semibold text-slate-500 hover:text-slate-900 flex items-center transition-colors">
     <svg class="mr-2 h-4 w-4 text-slate-400 group-hover:text-slate-900" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
     Back to Directory
 </button>
+
 <div class="mb-8">
-    <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
-        <div class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm uppercase tracking-widest">
-            [[ selected.user.email.substring(0, 2) ]]
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+        <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3 min-w-0">
+            <div class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm uppercase tracking-widest shrink-0">
+                [[ selected.user.email.substring(0, 2) ]]
+            </div>
+            <span class="truncate">[[ selected.user.email ]]</span>
+            <copy-button :value="selected.user.email" label="Copy email address"></copy-button>
+        </h2>
+        <div class="flex items-center gap-2 shrink-0">
+            <span :class="['badge !m-0', selected.user.counts?.namespaces ? 'badge-blue' : 'badge-slate']">
+                [[ selected.user.counts?.namespaces || 0 ]] Namespace[[ selected.user.counts?.namespaces === 1 ? '' : 's' ]]
+            </span>
+            <span :class="['badge !m-0', selected.user.counts?.capsules ? '!bg-amber-100 !text-amber-800 !border-amber-200' : 'badge-slate']">
+                [[ selected.user.counts?.capsules || 0 ]] Capsule[[ selected.user.counts?.capsules === 1 ? '' : 's' ]]
+            </span>
         </div>
-        [[ selected.user.email ]]
-    </h2>
+    </div>
 </div>
+
 <div class="bento-card">
     <div class="bento-header"><h4 class="bento-title">Project Memberships</h4></div>
     <div class="data-table-wrapper rounded-none border-x-0 border-b-0 shadow-none">
         <table class="data-table w-full">
-            <thead><tr><th>Namespace</th><th>Tenant</th><th>Cluster</th><th>Assigned Roles</th></tr></thead>
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Name</th>
+                    <th>Tenant</th>
+                    <th>Cluster</th>
+                    <th>Assigned Roles</th>
+                </tr>
+            </thead>
             <tbody>
-                <tr v-for="access in selected.user.data" :key="access.namespace" @click="jumpTo('namespaces', access.namespace)">
-                    <td class="font-bold text-slate-900">[[ access.namespace ]]</td>
+                <tr v-for="access in selected.user.data" :key="access.kind + access.name"
+                    @click="jumpTo(access.kind === 'capsule' ? 'capsules' : 'namespaces', access.name)"
+                    class="cursor-pointer">
+                    <td>
+                        <span :class="['badge !m-0', access.kind === 'capsule' ? '!bg-amber-100 !text-amber-800 !border-amber-200' : 'badge-blue']">
+                            [[ access.kind === 'capsule' ? 'Capsule' : 'Namespace' ]]
+                        </span>
+                    </td>
+                    <td>
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span :class="access.is_decommissioned ? 'line-through text-slate-400 truncate' : 'font-bold text-slate-900 truncate'" :title="access.name">[[ access.name ]]</span>
+                            <span v-if="access.lifecycle && !access.is_decommissioned"
+                                  :class="['badge !m-0 !px-1.5 !py-0.5 text-[10px]', access.lifecycle.toLowerCase() === 'prod' ? 'badge-green' : 'badge-blue']">
+                                [[ access.lifecycle.toUpperCase() ]]
+                            </span>
+                            <span v-if="access.is_decommissioned" class="badge badge-red !m-0 !px-1.5 !py-0.5 text-[10px]">Decommissioned</span>
+                        </div>
+                    </td>
                     <td class="text-slate-600 font-medium">[[ access.tenant ]]</td>
                     <td class="font-mono text-xs text-slate-500">[[ access.cluster ]]</td>
                     <td>
@@ -26,6 +75,11 @@
                                 [[ r ]]
                             </span>
                         </div>
+                    </td>
+                </tr>
+                <tr v-if="!selected.user.data?.length">
+                    <td colspan="5" class="text-center italic text-slate-500 py-10 bg-slate-50">
+                        No memberships recorded for this address.
                     </td>
                 </tr>
             </tbody>

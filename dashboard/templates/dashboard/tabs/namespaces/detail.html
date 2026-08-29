@@ -186,9 +186,17 @@
             <div class="bento-header"><h4 class="bento-title">Platform Operators</h4></div>
             <div class="bento-body">
                 <div class="flex flex-wrap gap-2">
-                    {# Disabled chips were text-slate-400 at opacity-60 on slate-50 --
-                       under 2:1 contrast, effectively unreadable. They now carry
-                       full-opacity slate-500 text and say so to screen readers. #}
+                    {% comment %}
+                      Disabled chips were text-slate-400 at opacity-60 on
+                      slate-50 -- under 2:1 contrast, effectively unreadable.
+                      They now carry full-opacity slate-500 text and say so to
+                      screen readers.
+
+                      Written as a comment block, not the hash form: the hash
+                      form is single-line only, so spreading one over several
+                      lines leaves it unmatched and it renders to the page as
+                      literal text. tools/check_templates.py now fails on that.
+                    {% endcomment %}
                     <span v-for="op in allOperatorsList" :key="op"
                           :class="['badge flex items-center', selected.namespace.operators?.[op]?.enabled ? 'bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200 shadow-sm' : 'bg-slate-50 text-slate-500 border border-slate-200']"
                           :title="op.replace('Operator', '') + (selected.namespace.operators?.[op]?.enabled ? ' — enabled' : ' — not enabled')">

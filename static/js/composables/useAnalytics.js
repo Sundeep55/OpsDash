@@ -29,13 +29,20 @@ export function useAnalytics({ cluster, onError }) {
 
     const kpis = computed(() => {
         const k = analytics.value?.global_kpis;
-        if (!k) return { tenants: 0, namespaces: 0, capsules: 0, cpu: '0', mem: '0' };
+        if (!k) return { tenants: 0, namespaces: 0, capsules: 0,
+                         cpu: '0', mem: '0', cpuLimit: '0', memLimit: '0' };
         return {
             tenants: k.tenants || 0,
             namespaces: k.namespaces || 0,
             capsules: k.capsules || 0,
+            // Requests and limits are both reported. A request is what a
+            // namespace is guaranteed, a limit is what it may burst to;
+            // showing only the request understates what the estate is
+            // committed to, often by a factor of two.
             cpu: (k.cpu_req || 0).toFixed(0),
             mem: (k.mem_req || 0).toFixed(0),
+            cpuLimit: (k.cpu_limit || 0).toFixed(0),
+            memLimit: (k.mem_limit || 0).toFixed(0),
         };
     });
 

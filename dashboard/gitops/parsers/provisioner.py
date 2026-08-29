@@ -179,7 +179,7 @@ def _apply_provisioner(prov, ctx):
     _apply_route_exception(prov, ctx)
     _apply_operators(prov, ctx)
     _apply_robot_accounts(prov, ctx)
-    apply_user_access(prov, namespace)
+    apply_user_access(prov, namespace=namespace)
 
 
 def _apply_network_policy(prov, ctx):

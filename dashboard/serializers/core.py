@@ -312,7 +312,11 @@ class TenantDetailSerializer(TenantSerializer):
 
 class UserListSerializer(serializers.Serializer):
     email = serializers.CharField()
+    # Namespaces and capsules are counted separately rather than summed into one
+    # "projects" number: they are different kinds of access, and a total would
+    # hide that someone's only access is to a capsule.
     access_count = serializers.IntegerField()
+    capsule_count = serializers.IntegerField(required=False, default=0)
 
 
 class CapsuleSerializer(serializers.ModelSerializer):

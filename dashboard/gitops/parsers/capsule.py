@@ -10,6 +10,7 @@ The file looks a lot like a namespace's, which is the problem this module and
 is the only discriminator.
 """
 from ..layout import layout
+from .users import apply_user_access, read_access_lists
 
 
 def is_capsule_payload(payload):
@@ -79,10 +80,14 @@ def parse_capsule_values(payload, ctx):
     except (TypeError, ValueError):
         capsule.harbor_storage_quota_gb = 0
 
-    owner_cfg = (block.get('project_owner_config') or {}).get('project_owner') or {}
-    user_cfg = (block.get('project_user_config') or {}).get('project_users') or {}
-    capsule.owners = [e for e in (owner_cfg.get('initialUsers') or []) if e]
-    capsule.users = [e for e in (user_cfg.get('initialUsers') or []) if e]
+    # Access goes into UserAccess, the same table a namespace's members go into,
+    # so the Users directory and the siglum view see capsule membership. The
+    # JSON columns on Capsule are kept in step with it purely so the detail page
+    # can render owners and users without a join; UserAccess is the source the
+    # rest of the app queries.
+    owners, users = read_access_lists(block)
+    capsule.owners = owners
+    capsule.users = users
 
     # Everything else, verbatim, for the detail page: limit ranges, retention
     # policy, network policy, allowed flows, robot accounts. Stored whole rather
@@ -98,6 +103,10 @@ def parse_capsule_values(payload, ctx):
     }
 
     capsule.save()
+
+    # After the save: the rows point at this capsule, so it has to exist first
+    # on the create path.
+    apply_user_access(block, capsule=capsule)
 
     # Route exceptions are deliberately not modelled for capsules. They hang off
     # a Namespace, and a capsule is not one; the capsule template ships
