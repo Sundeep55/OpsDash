@@ -2,7 +2,8 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from . import analytics, capsules, namespaces, requests, siglums, sync, tenants, users
+from . import (analytics, capsules, namespaces, pipeline, requests, siglums,
+               sync, tenants, users)
 
 router = DefaultRouter()
 router.register(r'clusters', tenants.ClusterViewSet, basename='cluster')
@@ -22,4 +23,11 @@ urlpatterns = [
     path('analytics/', analytics.GlobalAnalyticsView.as_view(), name='api-analytics'),
     path('sync/', sync.TriggerSyncView.as_view(), name='api-sync'),
     path('sync/status/', sync.SyncStatusView.as_view(), name='api-sync-status'),
+
+    # Onboarding pipeline. The only write path in the dashboard, and it writes
+    # to GitLab rather than to anything here.
+    path('pipeline/config/', pipeline.PipelineConfigView.as_view(), name='api-pipeline-config'),
+    path('pipeline/schema/', pipeline.PipelineSchemaView.as_view(), name='api-pipeline-schema'),
+    path('pipeline/index/', pipeline.PipelineIndexView.as_view(), name='api-pipeline-index'),
+    path('pipeline/trigger/', pipeline.PipelineTriggerView.as_view(), name='api-pipeline-trigger'),
 ]

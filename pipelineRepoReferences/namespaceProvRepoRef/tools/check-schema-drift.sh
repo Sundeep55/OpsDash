@@ -111,6 +111,71 @@ for op in $(yq -r '.operations | keys | .[]' "$SCHEMA"); do
     done
 done
 
+# -----------------------------------------------------------------------------
+# Schema <-> .gitlab-ci.yml
+#
+# Added after all three capsule operations shipped in the schema with no CI
+# support at all: absent from the OPERATION options, so GitLab refused the input
+# outright, and with no scaffold-capsule job to run even if it had not. The form
+# offered them, the drift check passed, and every capsule request was
+# unrunnable.
+#
+# The schema is the source of truth; the CI file has to keep up with it.
+# -----------------------------------------------------------------------------
+CI_FILE="${CI_FILE:-./.gitlab-ci.yml}"
+
+if [ ! -f "$CI_FILE" ]; then
+    echo ""
+    echo "  WARN: $CI_FILE not found, skipping the CI checks"
+else
+    SCHEMA_OPS=$(yq -r '.operations | keys | .[]' "$SCHEMA" | sort -u)
+
+    # The CI file is a two-document YAML: the spec header, then the pipeline.
+    # `yq ea` would merge them; select each explicitly instead.
+    CI_OPTIONS=$(yq -r 'select(document_index == 0) | .spec.inputs.OPERATION.options[]' "$CI_FILE" | sort -u)
+    CI_JOBS=$(yq -r 'select(document_index == 1) | keys | .[]' "$CI_FILE" | sort -u)
+
+    echo ""
+    echo "-> Every operation in the schema must be an OPERATION option in the CI file"
+    for op in $SCHEMA_OPS; do
+        printf '%s\n' "$CI_OPTIONS" | grep -qxF "$op" \
+            || finding "operation '$op' is in $SCHEMA but not in OPERATION options -- GitLab will refuse it"
+    done
+
+    echo "-> Every OPERATION option must be an operation the schema declares"
+    for op in $CI_OPTIONS; do
+        printf '%s\n' "$SCHEMA_OPS" | grep -qxF "$op" \
+            || finding "OPERATION option '$op' is offered by the CI file but not declared in $SCHEMA"
+    done
+
+    echo "-> Every job an operation names must exist in the CI file"
+    for op in $SCHEMA_OPS; do
+        job=$(yq -r ".operations.\"$op\".job // \"\"" "$SCHEMA")
+        [ -n "$job" ] || { finding "operation '$op' names no job"; continue; }
+        printf '%s\n' "$CI_JOBS" | grep -qxF "$job" \
+            || finding "operation '$op' names job '$job', which does not exist in $CI_FILE"
+    done
+
+    echo "-> Every job an operation names must actually run for it"
+    # A job whose rules exclude the operation is the same failure as a missing
+    # job -- a green pipeline with nothing in it -- and that is exactly how an
+    # API-driven decommission used to behave.
+    for op in $SCHEMA_OPS; do
+        job=$(yq -r ".operations.\"$op\".job // \"\"" "$SCHEMA")
+        [ -n "$job" ] || continue
+        printf '%s\n' "$CI_JOBS" | grep -qxF "$job" || continue
+        guard=$(yq -r "select(document_index == 1) | .\"$job\".rules[0].if // \"\"" "$CI_FILE")
+        case "$guard" in
+            *'$OPERATION !='*)
+                # The first rule is the "never for another operation" guard. If
+                # it does not name this operation, this operation is excluded.
+                printf '%s' "$guard" | grep -qF "\"$op\"" \
+                    || finding "operation '$op' runs job '$job', but that job's guard excludes it: $guard"
+                ;;
+        esac
+    done
+fi
+
 echo ""
 echo "==========================================================================="
 if [ "$FINDINGS" -gt 0 ]; then

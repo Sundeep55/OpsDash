@@ -58,7 +58,28 @@
 </div>
 
 <div class="bento-card">
-    <div class="bento-header"><h4 class="bento-title">Namespace Roster</h4></div>
+    {% comment %}
+      "Add namespace" sits on the roster rather than in the page header because
+      it is about this list: the operator is looking at what the tenant has and
+      deciding to add to it. The tenant and cluster are prefilled from what is
+      already on screen, which is the whole reason to trigger from here instead
+      of from the standalone GitLab form.
+    {% endcomment %}
+    <div class="bento-header flex items-center justify-between gap-3">
+        <h4 class="bento-title">Namespace Roster</h4>
+        <div v-if="pipelineAvailable && !selected.tenant.is_decommissioned" class="flex items-center gap-2">
+            <button @click="addCapsule(selected.tenant)" type="button"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 transition-colors focus-ring">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                Capsule
+            </button>
+            <button @click="addNamespace(selected.tenant)" type="button"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-slate-900 border border-slate-900 rounded-lg shadow-sm hover:bg-slate-800 transition-colors focus-ring">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                Add Namespace
+            </button>
+        </div>
+    </div>
     <div class="p-0">
         <ul class="divide-y divide-slate-100">
             <li v-for="ns in selected.tenant.active_namespaces" :key="ns.name" class="p-5 flex flex-col md:flex-row md:items-center justify-between hover:bg-slate-50 transition-colors gap-4">

@@ -136,6 +136,28 @@ class Compiler:
         if cols:
             return f'grid-template-columns: repeat({cols.group(1)}, minmax(0, 1fr));'
 
+        # col-span-N, including col-span-full. Added for the same reason as
+        # grid-cols above, and found the same way: the vendored build happened
+        # to contain the bare .col-span-2, so `sm:col-span-2` looked fine in the
+        # source, was skipped by the filter below, and simply did nothing on the
+        # page -- a two-column form where every field was meant to be full width.
+        span = re.fullmatch(r'col-span-(\d+|full)', base)
+        if span:
+            value = span.group(1)
+            return ('grid-column: 1 / -1;' if value == 'full'
+                    else f'grid-column: span {value} / span {value};')
+
+        # auto margins: ml-auto, mx-auto. Not on the --spacing scale, so the
+        # numeric rule below cannot express them -- 'auto' is a keyword, not a
+        # multiple. Wanted for the common "push this one item to the end of a
+        # flex row" case, where the alternative is restructuring the markup
+        # around a limitation of this builder.
+        auto_margin = re.fullmatch(r'(m[xytblr]?)-auto', base)
+        if auto_margin:
+            props = SPACING_PROPERTIES.get(auto_margin.group(1))
+            if props:
+                return ' '.join(f'{p}: auto;' for p in props)
+
         # spacing on the --spacing scale, possibly negative: px-2, -mt-0.5,
         # gap-y-0.5. The prefix alternation has to spell the gap forms out: the
         # [a-z]{1,2} class cannot match 'gap', so gap utilities only ever worked
@@ -252,7 +274,7 @@ class Command(BaseCommand):
             if rule is None:
                 # Only report things that look like real utilities. Words such as
                 # 'active' or 'prod' appear inside :class expressions as values.
-                if re.match(r'!?([a-z]+:)?(bg|text|border|ring|from|to|[pm][xytblr]?|gap(-[xy])?|grid-cols|w|h)-', cls):
+                if re.match(r'!?([a-z]+:)?(bg|text|border|ring|from|to|[pm][xytblr]?|gap(-[xy])?|grid-cols|col-span|w|h)-', cls):
                     unsupported[cls] = used[cls]
                 continue
             rules.append(rule)

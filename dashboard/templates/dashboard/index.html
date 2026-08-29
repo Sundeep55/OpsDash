@@ -85,6 +85,24 @@
             {% include 'dashboard/tabs/requests_tab.html' %}
         </div>
     </main>
+
+    {% comment %}
+      The onboarding request form. Mounted once here rather than per tab: it is
+      a modal, the buttons that open it are scattered across several tabs, and
+      one instance means one place holding the in-progress request.
+
+      It renders nothing until something opens it, and nothing can open it
+      unless the backend reports triggering as configured and permitted.
+    {% endcomment %}
+    <pipeline-dialog
+        :request="pipelineRequest"
+        :schema="pipelineSchema"
+        :index="pipelineIndex"
+        :loading="pipelineLoading"
+        :load-error="pipelineLoadError"
+        :result="pipelineResult"
+        @close="closePipeline"
+        @submit="submitPipeline"></pipeline-dialog>
 </div>
 
 {% comment %}

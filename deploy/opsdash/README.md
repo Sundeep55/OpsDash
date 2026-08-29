@@ -39,6 +39,7 @@ oc create secret generic ops-portal-secret \
 |---|---|---|
 | `DJANGO_SECRET_KEY` | yes in production | Without it Django falls back to the insecure key committed in `settings.py`. |
 | `GITLAB_TOKEN` | yes | Read-only `api` scope. Without it every poll fails and the dashboard stays empty. |
+| `PIPELINE_TOKEN` | only with `pipeline.enabled` | `api` scope on the *pipeline* project. Every dashboard-triggered pipeline runs as this identity — see below. |
 | `DJANGO_SUPERUSER_USERNAME` | no | `entrypoint.sh` creates the user on first start if this and the password are set. |
 | `DJANGO_SUPERUSER_PASSWORD` | no | |
 | `DJANGO_SUPERUSER_EMAIL` | no | |
@@ -110,6 +111,41 @@ should accept.
 | `persistence.retain` | `true` | Keeps the PVC on uninstall. |
 | `route.enabled` | `true` | OpenShift. Swap for `ingress.enabled` on plain Kubernetes. |
 | `secret.create` | `false` | See above. |
+
+### Pipeline triggering
+
+Off by default. When on, operators can start an onboarding pipeline from the
+tenant, namespace or capsule they are already looking at, instead of retyping
+its name into the GitLab form.
+
+```bash
+--set pipeline.enabled=true \
+--set pipeline.projectId=77          # the project that owns the pipeline
+```
+
+`pipeline.projectId` is **not** `gitlab.projectId`. The latter is the
+customer-instances repo the dashboard reads; this is the repo that owns
+`.gitlab-ci.yml` and `request-schema.yaml`. Enabling the feature without it
+fails the render rather than producing a dashboard whose buttons all error.
+
+The form is generated from `request-schema.yaml`, fetched live from that project
+and cached for `pipeline.schemaTtlSeconds`. A field merged into the schema
+therefore appears in the dashboard with no OpsDash release.
+
+Three things worth knowing:
+
+- **It is a shortcut, not a dependency.** If the pipeline project is
+  unreachable, or the feature is off, the dashboard shows no trigger controls
+  and behaves exactly as it did before. The GitLab Pages form is unaffected
+  either way, and remains the route that works when OpsDash is down.
+- **Pipelines run as one service identity.** That is what `PIPELINE_TOKEN` is.
+  So each request also carries a `TRIGGERED_BY` input set from the signed-in
+  dashboard user — otherwise every request in GitLab would look like it came
+  from the same bot. It is not the same as the payload's `requester_email`,
+  which is the customer who raised the ITSM ticket.
+- **Who may trigger.** By default, anyone who can sign in — the same scope as
+  the rest of the dashboard, where everyone can already read everything. Set
+  `pipeline.allowedGroup` to restrict it to members of one Django group.
 
 `replicas` is not a value. One Gunicorn process and one sync daemon share one
 SQLite file on a ReadWriteOnce volume; a second replica cannot schedule anyway,

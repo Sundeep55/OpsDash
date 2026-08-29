@@ -37,6 +37,23 @@ data:
   # --- Deep links from the UI into the repo tree ---
   GIT_BROWSER_URL: {{ .Values.gitlab.browserUrl | quote }}
 
+  # --- Pipeline triggering ---
+  # Always emitted, so turning the feature off is an explicit "false" in the
+  # ConfigMap rather than the absence of a key someone has to know about. The
+  # token is not here; it belongs in the Secret.
+  PIPELINE_ENABLED: {{ .Values.pipeline.enabled | quote }}
+  {{- if .Values.pipeline.enabled }}
+  PIPELINE_GITLAB_URL: {{ default .Values.gitlab.url .Values.pipeline.url | quote }}
+  PIPELINE_PROJECT_ID: {{ required "pipeline.projectId is required when pipeline.enabled is true -- it is the project that owns the pipeline and request-schema.yaml, usually not gitlab.projectId" .Values.pipeline.projectId | quote }}
+  PIPELINE_REF: {{ .Values.pipeline.ref | quote }}
+  PIPELINE_SCHEMA_PATH: {{ .Values.pipeline.schemaPath | quote }}
+  PIPELINE_SCHEMA_TTL_SECONDS: {{ .Values.pipeline.schemaTtlSeconds | quote }}
+  PIPELINE_SSL_VERIFY: {{ (kindIs "invalid" .Values.pipeline.sslVerify | ternary .Values.gitlab.sslVerify .Values.pipeline.sslVerify) | quote }}
+  {{- with .Values.pipeline.allowedGroup }}
+  PIPELINE_ALLOWED_GROUP: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+
   {{- with .Values.gitopsLayout }}
 
   # --- GitOps repository layout overrides ---

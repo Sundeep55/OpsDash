@@ -34,6 +34,16 @@ NOTE: gitlab.sslVerify is false, so the sync does not verify the GitLab
 certificate. Intended for an internal CA that is not in the image's trust store.
 {{- end }}
 
+{{- if .Values.pipeline.enabled }}
+
+Pipeline triggering is ON. Requests go to project {{ .Values.pipeline.projectId }} on
+ref {{ .Values.pipeline.ref }}, and the Secret must also carry PIPELINE_TOKEN with api
+scope on that project. Without it the dashboard shows no trigger controls.
+{{- if not .Values.pipeline.allowedGroup }}
+Any signed-in user may trigger; set pipeline.allowedGroup to restrict it.
+{{- end }}
+{{- end }}
+
 Check the sync is running:
 
   oc logs deploy/{{ include "opsdash.fullname" . }} -c sync-sidecar --tail=20

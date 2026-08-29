@@ -81,6 +81,7 @@ COPY bin/ /app/bin/
 # tooling the runtime never reads.
 COPY tools/check_py39_compat.py /app/tools/
 COPY tools/check_templates.py /app/tools/
+COPY tools/check_schema_form_drift.py /app/tools/
 
 # OpenShift Security Fix:
 # OpenShift runs containers with random UIDs, but they are always part of Group 0
@@ -106,6 +107,16 @@ RUN python3 tools/check_templates.py
 # Without this the class silently resolves to nothing and the element renders
 # unstyled at runtime -- see dashboard/management/commands/build_css.py.
 RUN python manage.py build_css --check
+
+# Here this only checks that the vendored rule engine is present -- a missing
+# static/js/vendor/schema-form.js breaks the trigger dialog at runtime with a
+# module resolution error, which is worth catching at build time.
+#
+# It does NOT check for drift here: pipelineRepoReferences/ is not in the build
+# context, so there is nothing to compare against and the script says so and
+# exits clean. The drift comparison is the developer and CI gate, where both
+# copies exist -- run `python3 tools/check_schema_form_drift.py` there.
+RUN python3 tools/check_schema_form_drift.py
 
 # Bake the static files directly into the image (Now runs safely as non-root!)
 RUN python manage.py collectstatic --noinput

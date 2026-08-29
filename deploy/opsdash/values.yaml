@@ -66,6 +66,40 @@ gitlab:
   browserUrl: "https://gitlab.com/dcs/dcs-customer-instances/-/tree/main"
 
 # -----------------------------------------------------------------------------
+# Pipeline triggering
+#
+# Lets an operator start an onboarding pipeline from the dashboard instead of
+# going to the GitLab form. Off by default, and it stays a shortcut rather than
+# a dependency: the GitLab Pages form works whether this is on or not, and if
+# this project is unreachable the dashboard simply shows no trigger controls.
+#
+# projectId is the project that owns the pipeline and request-schema.yaml --
+# usually NOT the same project as gitlab.projectId above, which is the
+# customer-instances repo the dashboard reads.
+#
+# The token is a secret: put PIPELINE_TOKEN in the Secret alongside
+# GITLAB_TOKEN. It needs api scope on the pipeline project, and it is the
+# identity every dashboard-triggered pipeline runs as -- which is why the
+# request carries TRIGGERED_BY with the signed-in user, so the pipeline records
+# who actually asked rather than just the service account.
+# -----------------------------------------------------------------------------
+pipeline:
+  enabled: false
+  # Defaults to gitlab.url when empty.
+  url: ""
+  projectId: ""
+  ref: "main"
+  schemaPath: "request-schema.yaml"
+  # How long a fetched schema is reused. Short enough that a merged field shows
+  # up the same morning; long enough not to call GitLab on every form open.
+  schemaTtlSeconds: 300
+  # Restrict triggering to members of one Django group. Empty means any user who
+  # can sign in, which matches how the rest of the dashboard is scoped.
+  allowedGroup: ""
+  # Defaults to gitlab.sslVerify when left null.
+  sslVerify: null
+
+# -----------------------------------------------------------------------------
 # GitOps repository layout
 #
 # Only the keys set here are emitted; anything omitted keeps the default baked

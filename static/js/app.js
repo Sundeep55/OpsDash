@@ -11,11 +11,13 @@ import { usePaginatedList, useSearchList } from './composables/usePaginatedList.
 import { useAnalytics } from './composables/useAnalytics.js';
 import { useSelection, TAB_ENTITY } from './composables/useSelection.js';
 import { useSync } from './composables/useSync.js';
+import { usePipeline } from './composables/usePipeline.js';
 import { SiglumTree } from './components/SiglumTree.js';
 import { CopyButton } from './components/CopyButton.js';
 import { DetailSection } from './components/DetailSection.js';
 import { TableSkeleton } from './components/TableSkeleton.js';
 import { ExpiryBanner } from './components/ExpiryBanner.js';
+import { PipelineDialog } from './components/PipelineDialog.js';
 import { UI_CONFIG } from './ui_config.js';
 
 const { createApp, ref, computed, onMounted, onUnmounted, watch } = Vue;
@@ -28,7 +30,7 @@ const NO_FEATURES = {
 
 createApp({
     delimiters: ['[[', ']]'],
-    components: { SiglumTree, CopyButton, DetailSection, TableSkeleton, ExpiryBanner },
+    components: { SiglumTree, CopyButton, DetailSection, TableSkeleton, ExpiryBanner, PipelineDialog },
 
     setup() {
         const portal = readPortalConfig();
@@ -141,6 +143,100 @@ createApp({
             onSessionExpired: () => window.location.reload(),
         });
 
+        /* Pipeline triggering.
+         *
+         * The one place the dashboard causes anything to happen. Every control
+         * it adds is hidden unless the backend says triggering is configured
+         * and this user may use it, so an estate without a pipeline configured
+         * looks exactly as it did before the feature existed.
+         *
+         * Nothing is refreshed on success on purpose: the pipeline opens a
+         * merge request, and the estate only changes once that is merged and
+         * the next sync picks it up. Refetching immediately would suggest
+         * otherwise. */
+        const pipeline = usePipeline({ onError });
+
+        const submitPipeline = async ({ operation, payload }) => {
+            await pipeline.send(operation, payload);
+        };
+
+        /* Context-aware openers.
+         *
+         * Each one passes what the surrounding page already knows. The point of
+         * triggering from here rather than from the standalone form is that the
+         * operator is already looking at the tenant they mean, so re-typing its
+         * name is both friction and a chance to typo it. */
+        // Only prefill the cluster when the operator has actually chosen one.
+        // 'All' is a filter, not a target, and sending it would be a value the
+        // schema's enum does not offer.
+        const clusterPrefill = cluster => (cluster && cluster !== ALL ? { target_cluster: cluster } : {});
+
+        const addTenant = () => pipeline.open({
+            operation: 'namespace.create',
+            // A tenant is created by requesting its first namespace; there is no
+            // separate "create tenant" operation, and inventing one in the UI
+            // would imply a pipeline path that does not exist.
+            choices: ['namespace.create', 'devspace.create', 'capsule.create', 'cso.create'],
+            title: 'New tenant',
+            prefill: clusterPrefill(globalCluster.value),
+        });
+
+        // From the Capsules tab, where the operator has already said which kind
+        // of thing they want. The tenant is still theirs to pick or invent.
+        const newCapsule = () => pipeline.open({
+            operation: 'capsule.create',
+            title: 'New capsule',
+            prefill: clusterPrefill(globalCluster.value),
+        });
+
+        const addNamespace = tenant => pipeline.open({
+            operation: 'namespace.create',
+            choices: ['namespace.create', 'devspace.create', 'cso.create'],
+            title: `Add to ${tenant.tenant_name || tenant.name}`,
+            prefill: {
+                target_cluster: tenant.cluster,
+                tenant_name: tenant.tenant_name || tenant.name,
+                siglum: tenant.siglum,
+            },
+        });
+
+        const addCapsule = tenant => pipeline.open({
+            operation: 'capsule.create',
+            title: `Add capsule to ${tenant.tenant_name || tenant.name}`,
+            prefill: {
+                target_cluster: tenant.cluster,
+                tenant_name: tenant.tenant_name || tenant.name,
+                siglum: tenant.siglum,
+            },
+        });
+
+        const updateNamespace = namespace => pipeline.open({
+            operation: 'namespace.update',
+            choices: ['namespace.update', 'mirror.create', 'namespace.decommission'],
+            title: `Change ${namespace.name}`,
+            prefill: {
+                target_cluster: namespace.cluster,
+                tenant_name: namespace.tenant,
+                namespace_name: namespace.name,
+                harbor_project: namespace.name,
+                lifecycle: namespace.lifecycle,
+                siglum: namespace.siglum,
+            },
+        });
+
+        const updateCapsule = capsule => pipeline.open({
+            operation: 'capsule.update',
+            choices: ['capsule.update', 'capsule.decommission'],
+            title: `Change ${capsule.name}`,
+            prefill: {
+                target_cluster: capsule.cluster,
+                tenant_name: capsule.tenant,
+                sub_tenant_name: capsule.name,
+                lifecycle: capsule.lifecycle,
+                siglum: capsule.siglum,
+            },
+        });
+
         // ---------------------------------------------------------- reactions
 
         watch(() => [search.value.namespace, search.value.namespaceCluster, search.value.namespaceStatus],
@@ -243,6 +339,7 @@ createApp({
         // ---------------------------------------------------------- lifecycle
 
         onMounted(() => {
+            pipeline.loadConfig();
             analytics.fetchAnalytics();
             namespaces.fetchPage(1);
             tenants.fetchPage(1);
@@ -301,6 +398,13 @@ createApp({
             selected: selection.selected, selectItem: selection.select, detailLoading: selection.isLoading,
             jumpTo, dashboardDetail, drilldownNamespaces, showDashboardDetail,
             getOperatorIcon,
+            // pipeline triggering
+            pipelineAvailable: pipeline.available,
+            pipelineRequest: pipeline.request, pipelineSchema: pipeline.schema,
+            pipelineIndex: pipeline.index, pipelineLoading: pipeline.loading,
+            pipelineLoadError: pipeline.loadError, pipelineResult: pipeline.result,
+            closePipeline: pipeline.close, submitPipeline,
+            addTenant, addNamespace, addCapsule, newCapsule, updateNamespace, updateCapsule,
         };
     },
 }).mount('#app');

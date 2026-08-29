@@ -8,6 +8,12 @@
         <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">
             [[ capsulesList.length ]] capsule[[ capsulesList.length === 1 ? '' : 's' ]]
         </span>
+
+        <button v-if="pipelineAvailable" @click="newCapsule()" type="button"
+                class="ml-auto shrink-0 inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all focus-ring">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+            New Capsule
+        </button>
     </div>
 
     <div class="data-table-wrapper flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative z-0"
