@@ -15,9 +15,10 @@ from dashboard.serializers import CapsuleDetailSerializer, CapsuleSerializer
             "quota.\n\n"
             "Those namespaces are deliberately not tracked: the estate records "
             "the capsule and its quota, and what runs inside is the capsule "
-            "owner's business. `status=all` includes decommissioned capsules; "
-            "`cluster` narrows to one cluster; `search` matches capsule, tenant "
-            "or siglum."
+            "owner's business.\n\n"
+            "`is_decommissioned=true|false` narrows by status and omitting it "
+            "returns both, matching the tenant and namespace lists; `cluster` "
+            "narrows to one cluster; `search` matches capsule, tenant or siglum."
         ),
     )
 )
@@ -33,9 +34,15 @@ class CapsuleListApiView(generics.ListAPIView):
         if cluster and cluster != 'All':
             qs = qs.filter(cluster__name=cluster)
 
-        # Active-only by default, matching the namespace and tenant lists: a
-        # decommissioned capsule is history, not inventory.
-        if self.request.query_params.get('status') != 'all':
+        # Same convention as the tenant and namespace lists rather than a
+        # bespoke one: an explicit true/false narrows, and omitting it returns
+        # both. This used to be `status=all`, which meant the tri-state pill
+        # every other directory has could not be wired up here -- so a
+        # decommissioned capsule was not reachable from the UI at all.
+        decommissioned = self.request.query_params.get('is_decommissioned')
+        if decommissioned in ('true', 'True', '1'):
+            qs = qs.filter(is_decommissioned=True)
+        elif decommissioned in ('false', 'False', '0'):
             qs = qs.filter(is_decommissioned=False)
 
         return qs.order_by('name')

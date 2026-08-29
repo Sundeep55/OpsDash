@@ -94,9 +94,17 @@ export function usePipeline({ onError } = {}) {
     const close = () => { request.value = null; };
 
     const send = async (operation, payload) => {
-        const response = await postJSON(TRIGGER_URL, { operation, payload });
-        result.value = response;
-        return response;
+        try {
+            const response = await postJSON(TRIGGER_URL, { operation, payload });
+            result.value = response;
+            return response;
+        } catch (error) {
+            // Rethrown so the dialog can await it and show the reason in place.
+            // The server's `detail` is the useful half -- it carries GitLab's
+            // own refusal text -- so lead with it and keep the status as
+            // context rather than as the whole message.
+            throw new Error(error.detail || error.message || 'The request could not be sent.');
+        }
     };
 
     return {

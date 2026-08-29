@@ -51,7 +51,6 @@ class _Cache:
         self._lock = threading.Lock()
         self._value = None
         self._fetched_at = 0.0
-        self._error = None
 
     def get(self, settings, force=False):
         with self._lock:
@@ -70,12 +69,10 @@ class _Cache:
                 if self._value is not None:
                     logger.warning("Schema refresh failed, serving cached copy: %s", exc)
                     return self._value
-                self._error = str(exc)
                 raise
 
             self._value = value
             self._fetched_at = time.time()
-            self._error = None
             return value
 
     def invalidate(self):

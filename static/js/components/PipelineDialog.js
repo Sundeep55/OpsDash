@@ -25,8 +25,20 @@ export const PipelineDialog = {
         loading: { type: Boolean, default: false },
         loadError: { type: String, default: '' },
         result: { type: Object, default: null },
+        /* A function, not an event.
+         *
+         * $emit returns the component instance, never a promise, so `await
+         * this.$emit(...)` resolves immediately and the surrounding try/catch
+         * can never see a rejection from the handler. The whole failure path was
+         * dead because of it: GitLab answering 502 produced an unhandled
+         * rejection somewhere else entirely and this dialog just sat there,
+         * spinner already cleared, saying nothing.
+         *
+         * A prop that is a function can be awaited, so the error lands where the
+         * operator is looking. */
+        onSubmit: { type: Function, required: true },
     },
-    emits: ['close', 'submit'],
+    emits: ['close'],
 
     data() {
         return {
@@ -35,6 +47,7 @@ export const PipelineDialog = {
             sending: false,
             error: '',
             showPayload: false,
+            copied: false,
             // The dialog opens before the schema has been fetched, so the
             // prefill cannot be applied on the way in -- working out which
             // fields an operation accepts needs the schema. This records
@@ -193,6 +206,16 @@ export const PipelineDialog = {
     methods: {
         field(name) { return this.schema?.fields?.[name] || {}; },
 
+        /* Decommission is not the same kind of choice as the others.
+         *
+         * It sits in the same row as "update" and is one click away from it, so
+         * it gets its own colour. It still only ever opens a form and raises a
+         * merge request -- nothing here removes anything -- but a control that
+         * retires a namespace should not look identical to one that edits it. */
+        isDestructive(operation) {
+            return String(operation).endsWith('.decommission');
+        },
+
         isRequired(name) {
             return SchemaForm.isRequired(this.schema, name, this.state, this.operation);
         },
@@ -289,7 +312,7 @@ export const PipelineDialog = {
             this.sending = true;
             this.error = '';
             try {
-                await this.$emit('submit', { operation: this.operation, payload: this.payload });
+                await this.onSubmit({ operation: this.operation, payload: this.payload });
             } catch (error) {
                 this.error = String(error.message || error);
             } finally {
@@ -372,8 +395,11 @@ export const PipelineDialog = {
         <div class="flex flex-wrap gap-2 mt-1">
           <button v-for="op in operations" :key="op" @click="chooseOperation(op)" type="button"
                   :class="['px-3 py-1.5 rounded-full text-xs font-bold border transition-all focus-ring',
-                           op === operation ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50']">
+                           op === operation
+                             ? (isDestructive(op) ? 'bg-red-600 text-white border-red-600 shadow-sm'
+                                                  : 'bg-blue-600 text-white border-blue-600 shadow-sm')
+                             : (isDestructive(op) ? 'bg-white text-red-700 border-red-200 hover:bg-red-50'
+                                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50')]">
             {{ schema.operations[op].title || op }}
           </button>
         </div>
@@ -474,10 +500,23 @@ export const PipelineDialog = {
 
       <!-- payload preview -->
       <div class="mt-4">
-        <button @click="showPayload = !showPayload" type="button"
-                class="text-xs font-bold text-slate-500 hover:text-slate-800 underline underline-offset-2 focus-ring rounded">
-          {{ showPayload ? 'Hide' : 'Show' }} the request payload ({{ payloadBytes }} bytes)
-        </button>
+        <div class="flex items-center gap-3">
+          <button @click="showPayload = !showPayload" type="button"
+                  class="text-xs font-bold text-slate-500 hover:text-slate-800 underline underline-offset-2 focus-ring rounded">
+            {{ showPayload ? 'Hide' : 'Show' }} the request payload ({{ payloadBytes }} bytes)
+          </button>
+          <!--
+            The way out when triggering from here does not work. Copy needs
+            nothing from OpsDash or GitLab, so a broken token, a network
+            problem or a pipeline this dashboard cannot reach still leaves the
+            operator holding a payload they can paste into the GitLab form.
+            That is the difference between a shortcut and a dependency.
+          -->
+          <button @click="copyPayload" type="button"
+                  class="text-xs font-bold text-slate-500 hover:text-slate-800 underline underline-offset-2 focus-ring rounded">
+            {{ copied ? 'Copied' : 'Copy it' }}
+          </button>
+        </div>
         <pre v-if="showPayload" class="mt-2 max-h-48 overflow-auto rounded-lg bg-slate-900 p-3 text-[11px] leading-relaxed text-slate-100">{{ payloadText }}</pre>
       </div>
     </div>
@@ -494,9 +533,10 @@ export const PipelineDialog = {
           Cancel
         </button>
         <button @click="submit" :disabled="!ready"
-                class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed focus-ring">
+                :class="['inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed focus-ring',
+                         isDestructive(operation) ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-900 hover:bg-slate-800']">
           <svg v-if="sending" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-          {{ sending ? 'Starting…' : 'Start pipeline' }}
+          {{ sending ? 'Starting…' : (isDestructive(operation) ? 'Request decommission' : 'Start pipeline') }}
         </button>
       </div>
     </div>

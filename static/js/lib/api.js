@@ -45,7 +45,24 @@ async function request(url, options = {}) {
         throw new SessionExpired(`Session expired for ${url}`);
     }
     if (!response.ok) {
-        throw new Error(`HTTP ${response.status} for ${url}`);
+        // Carry the server's own explanation on the error rather than throwing
+        // it away. DRF puts it in `detail`, and for the pipeline endpoints that
+        // is the only place GitLab's reason appears -- "there can not be more
+        // than 20 inputs", "insufficient permissions". A bare "HTTP 502" tells
+        // the operator nothing they can act on.
+        //
+        // The message keeps its original shape, because callers match on it:
+        // useSync tests for '409'.
+        let detail = '';
+        try {
+            const body = await response.json();
+            detail = body && (body.detail || body.message || body.error) || '';
+        } catch { /* not JSON; the status is all there is */ }
+
+        const error = new Error(`HTTP ${response.status} for ${url}`);
+        error.status = response.status;
+        error.detail = typeof detail === 'string' ? detail : JSON.stringify(detail);
+        throw error;
     }
     return response.json();
 }

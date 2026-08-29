@@ -5,6 +5,17 @@
                    class="w-full rounded-full border border-slate-200 pl-11 pr-4 py-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none focus:ring-2 focus:ring-blue-600 transition-all"
                    placeholder="Search capsules, tenant or siglum...">
         </div>
+        {% comment %}
+          The same tri-state pill the tenant and namespace directories use.
+          Without it a decommissioned capsule could not be reached from the UI
+          at all -- the list was hardcoded to active-only.
+        {% endcomment %}
+        <div class="flex bg-slate-100 p-1 rounded-full border border-slate-200 shrink-0 h-[42px]">
+            <button @click="search.capsuleStatus = 'active'" :class="search.capsuleStatus === 'active' ? 'bg-white text-slate-900 shadow-sm border-slate-200' : 'text-slate-500 hover:text-slate-700'" class="flex items-center justify-center px-4 rounded-full text-xs font-bold transition-all outline-none border border-transparent"><span class="w-1.5 h-1.5 rounded-full bg-green-500 mr-2"></span> Active</button>
+            <button @click="search.capsuleStatus = 'decomm'" :class="search.capsuleStatus === 'decomm' ? 'bg-white text-slate-900 shadow-sm border-slate-200' : 'text-slate-500 hover:text-slate-700'" class="flex items-center justify-center px-4 rounded-full text-xs font-bold transition-all outline-none border border-transparent"><span class="w-1.5 h-1.5 rounded-full bg-red-500 mr-2"></span> Decomm</button>
+            <button @click="search.capsuleStatus = 'all'" :class="search.capsuleStatus === 'all' ? 'bg-white text-slate-900 shadow-sm border-slate-200' : 'text-slate-500 hover:text-slate-700'" class="flex items-center justify-center px-4 rounded-full text-xs font-bold transition-all outline-none border border-transparent">All</button>
+        </div>
+
         <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">
             [[ capsulesList.length ]] capsule[[ capsulesList.length === 1 ? '' : 's' ]]
         </span>

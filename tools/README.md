@@ -80,3 +80,50 @@ Three differences are expected and do not indicate a regression:
 
 A refactor that is meant to preserve behaviour should produce no other
 difference. Anything else is a bug in the refactor, not an improvement.
+
+---
+
+## demo_estate.py — a browsable estate, at scale
+
+`gitops_fixture.py` is small on purpose: every branch of the sync walk is
+visible and assertable in it. It is not useful for looking at the dashboard,
+because three rows tell you nothing about how a list of eight hundred behaves.
+
+`demo_estate.py` is the other half — a generated estate roughly the size of
+production, for exercising the UI by hand: pagination, the siglum drill-down,
+the expiry banner, cluster scoping, long tenant rosters, empty states.
+
+```bash
+python3 tools/demo_estate.py /tmp/demo-estate
+
+export DATABASE_PATH=/tmp/demo.sqlite3      # keep it out of your real db.sqlite3
+python manage.py migrate --noinput
+python manage.py sync_gitops --repo-path /tmp/demo-estate
+python manage.py createsuperuser
+python manage.py runserver 8861
+```
+
+No GitLab involved. The sync falls back to `--repo-path` whenever `GITLAB_URL`,
+`GITLAB_TOKEN` and `GITLAB_PROJECT_ID` are not all set, which an ordinary
+development shell already satisfies — see `dashboard/gitops/fetcher.py`.
+
+`DATABASE_PATH` is the important line. Without it the sync writes into the
+`db.sqlite3` in the repository root and replaces whatever is there.
+
+Deterministic: the same seed gives the same estate, so a screenshot taken today
+still matches tomorrow. `--tenants N` changes the size, `--seed N` the shape.
+
+It deliberately generates things the small fixture does not, because they are
+the parts that only misbehave at scale or over time:
+
+- route exceptions spread across active, expiring-within-30-days and expired,
+  so the banner has real content rather than never firing
+- capsules, which `gitops_fixture.py` does not cover at all
+- a long-tailed namespace distribution — most tenants small, a few large
+- decommissioned tenants and namespaces, so those filters return something
+- siglums in a two-level hierarchy, so the drill-down has depth to drill
+
+The printed summary is what was written to disk. The sync will report slightly
+more namespaces than that: a service mesh names dataplane members that do not
+otherwise exist and the walk creates them, which is the behaviour being
+exercised rather than a miscount.

@@ -44,7 +44,8 @@ createApp({
             tenant: '', tenantStatus: 'active', tenantCluster: ALL,
             namespace: '', namespaceStatus: 'active', namespaceCluster: ALL,
             nsFeatures: { ...NO_FEATURES },
-            user: '', siglum: '', request: '', capsule: '',
+            user: '', siglum: '', request: '',
+            capsule: '', capsuleStatus: 'active',
         });
 
         const reloadOnExpiry = error => {
@@ -109,6 +110,7 @@ createApp({
             buildParams: () => ({
                 search: search.value.capsule,
                 cluster: clusterParam(globalCluster.value),
+                is_decommissioned: decommissionedParam(search.value.capsuleStatus),
             }),
         });
 
@@ -245,7 +247,7 @@ createApp({
         watch(() => [search.value.tenant, search.value.tenantCluster, search.value.tenantStatus],
             tenants.refresh);
         watch(() => search.value.user, users.refresh);
-        watch(() => search.value.capsule, capsules.refresh);
+        watch(() => [search.value.capsule, search.value.capsuleStatus], capsules.refresh);
         watch(() => search.value.siglum, siglums.refresh);
         watch(() => search.value.request, requests.refresh);
 
@@ -291,6 +293,7 @@ createApp({
             if (tabId === 'namespaces') Object.assign(search.value, { namespace: '', namespaceStatus: 'active', namespaceCluster: ALL, nsFeatures: { ...NO_FEATURES } });
             if (tabId === 'users') search.value.user = '';
             if (tabId === 'siglums') search.value.siglum = '';
+            if (tabId === 'capsules') Object.assign(search.value, { capsule: '', capsuleStatus: 'active' });
             if (tabId === 'requests') search.value.request = '';
             if (tabId === 'dashboard') dashboardDetail.value = null;
         };

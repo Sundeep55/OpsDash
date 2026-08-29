@@ -101,8 +101,8 @@
         :loading="pipelineLoading"
         :load-error="pipelineLoadError"
         :result="pipelineResult"
-        @close="closePipeline"
-        @submit="submitPipeline"></pipeline-dialog>
+        :on-submit="submitPipeline"
+        @close="closePipeline"></pipeline-dialog>
 </div>
 
 {% comment %}
