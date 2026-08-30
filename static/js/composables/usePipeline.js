@@ -16,6 +16,24 @@ import { getJSON, postJSON } from '../lib/api.js';
 
 const { ref, computed } = Vue;
 
+/* Where the operator's GitLab token lives.
+ *
+ * sessionStorage, not localStorage: this is a credential, and sessionStorage is
+ * cleared when the tab closes. The GitLab Pages form uses localStorage and a
+ * token put there was still sitting in the browser two days later, which is a
+ * long time for a PAT to be lying about on a shared machine.
+ *
+ * It is never sent to OpsDash except as the header on a trigger, and the server
+ * never writes it down -- not to the database, not to the Django session, not to
+ * a log line. Nothing else in the app reads this key.
+ */
+const TOKEN_KEY = 'opsdash-gitlab-token';
+
+function readToken() {
+    try { return sessionStorage.getItem(TOKEN_KEY) || ''; }
+    catch { return ''; }   // private window, or storage disabled
+}
+
 const CONFIG_URL = '/api/v2/pipeline/config/';
 const SCHEMA_URL = '/api/v2/pipeline/schema/';
 const INDEX_URL = '/api/v2/pipeline/index/';
@@ -31,6 +49,20 @@ export function usePipeline({ onError } = {}) {
     // What the dialog is currently showing. Null means closed.
     const request = ref(null);
     const result = ref(null);
+
+    // Mirrors sessionStorage so the UI can react to it; the store is the source.
+    const token = ref(readToken());
+
+    const setToken = value => {
+        const trimmed = (value || '').trim();
+        token.value = trimmed;
+        try {
+            if (trimmed) sessionStorage.setItem(TOKEN_KEY, trimmed);
+            else sessionStorage.removeItem(TOKEN_KEY);
+        } catch { /* nothing to do; it simply will not persist */ }
+    };
+
+    const hasToken = computed(() => token.value.length > 0);
 
     const available = computed(() => config.value.enabled === true);
 
@@ -103,7 +135,11 @@ export function usePipeline({ onError } = {}) {
 
     const send = async (operation, payload) => {
         try {
-            const response = await postJSON(TRIGGER_URL, { operation, payload });
+            // The token goes in a header, per request. It is not in the body,
+            // where it would end up in any log or error report that captures
+            // request bodies.
+            const response = await postJSON(TRIGGER_URL, { operation, payload },
+                                            { 'X-GitLab-Token': token.value });
             result.value = response;
             return response;
         } catch (error) {
@@ -118,6 +154,7 @@ export function usePipeline({ onError } = {}) {
     return {
         config, schema, index, available, loading, loadError,
         request, result,
+        token, hasToken, setToken,
         loadConfig, ensureLoaded, open, close, send,
     };
 }

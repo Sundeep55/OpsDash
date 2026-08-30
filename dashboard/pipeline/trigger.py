@@ -10,11 +10,11 @@ show_if, required_if, normalise and the type rules in Python would be a third
 implementation to keep in step, and the one place they could disagree silently.
 
 What this does check is a different question: not "is this request sensible" but
-"is this request shaped like something we are willing to forward under our
-token". A browser can send anything; the dashboard holds a credential the
-operator does not; so the payload is checked for shape and provenance before it
-travels. A request that passes here and is nonsense still fails in the shim,
-loudly, which is where it should fail.
+"is this request shaped like something we are willing to forward at all". A
+browser can send anything, and this process is what turns it into a pipeline
+call, so the payload is checked for shape and provenance before it travels. A
+request that passes here and is nonsense still fails in the shim, loudly, which
+is where it should fail.
 
 Concretely: the operation must be one the schema declares, every key must be a
 field that operation offers, values must be scalars, and the whole thing must
@@ -124,8 +124,7 @@ def _dry_run(inputs, settings):
         f'  schema : {settings.schema_file}',
         f'  ref    : {settings.ref}',
         banner,
-        f'  OPERATION    = {inputs["OPERATION"]}',
-        f'  TRIGGERED_BY = {inputs["TRIGGERED_BY"]}',
+        f'  OPERATION = {inputs["OPERATION"]}',
         '  REQUEST_PAYLOAD =',
     ]
     decoded = json.loads(inputs['REQUEST_PAYLOAD'])
@@ -145,27 +144,41 @@ def _dry_run(inputs, settings):
     }
 
 
-def trigger(operation, payload, triggered_by, settings=None):
-    """Start a pipeline. Returns GitLab's response dict.
+def trigger(operation, payload, user_token, settings=None):
+    """Start a pipeline as the operator. Returns GitLab's response dict.
 
-    `triggered_by` is set by the view from the signed-in user and is never taken
-    from the request body -- the point of it is that the client cannot choose it.
+    `user_token` is that operator's own GitLab PAT, taken from the request and
+    used for this one call. It is never written down: not to the database, not
+    to the session, not to a log line. See PipelineTriggerView for where it
+    comes from and dashboard/pipeline/__init__.py for why.
+
+    Because the call is made as them, GitLab attributes the pipeline to them --
+    so nothing has to be passed alongside the request to say who asked.
     """
     settings = settings or PipelineSettings()
     if not settings.is_configured:
         raise TriggerFailed(settings.unavailable_reason or 'Pipeline triggering is not configured.')
 
+    if not settings.is_dry_run and not user_token:
+        raise TriggerRejected(
+            'A GitLab personal access token is required. The request is sent as '
+            'you, so the pipeline is recorded against your account.'
+        )
+
     schema = get_schema(settings)
     _, encoded = check_payload(operation, payload, schema)
 
+    # The two inputs the pipeline has always taken, and no more.
+    #
+    # An earlier version added a third, TRIGGERED_BY, because the request went
+    # out under one shared service token and GitLab would otherwise have shown
+    # every pipeline as the same bot. Sending it as the operator removes the
+    # need: GitLab knows who they are. Keeping the input list unchanged also
+    # means a pipeline definition that predates OpsDash still accepts these
+    # requests unaltered.
     inputs = {
         'OPERATION': operation,
         'REQUEST_PAYLOAD': encoded,
-        # Attribution. The pipeline runs as the service token, so without this
-        # every request in GitLab looks like it came from the same bot.
-        # Deliberately not requester_email: that is the customer who raised the
-        # ITSM ticket, not whoever pressed the button here.
-        'TRIGGERED_BY': triggered_by or '',
     }
 
     if settings.is_dry_run:
@@ -180,18 +193,20 @@ def trigger(operation, payload, triggered_by, settings=None):
     body = {'ref': settings.ref, 'inputs': inputs}
 
     # Logged before the call, not after: if GitLab times out we still want a
-    # record that this user asked for this operation. The payload itself is not
-    # logged -- it carries requester addresses and cost centres.
+    # record that the request was made. Neither the payload nor the token is
+    # logged -- the payload carries requester addresses and cost centres, and
+    # the token is a credential that must not survive this function.
     logger.info(
-        "Pipeline trigger: operation=%s project=%s ref=%s by=%s",
-        operation, settings.project_id, settings.ref, triggered_by,
+        "Pipeline trigger: operation=%s project=%s ref=%s",
+        operation, settings.project_id, settings.ref,
     )
 
     try:
         response = requests.post(
             url,
             json=body,
-            headers={'PRIVATE-TOKEN': settings.token},
+            # The operator's own token, not the service one.
+            headers={'PRIVATE-TOKEN': user_token},
             timeout=TRIGGER_TIMEOUT,
             verify=settings.ssl_verify,
         )

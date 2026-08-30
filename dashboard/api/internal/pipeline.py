@@ -169,9 +169,12 @@ class PipelineTriggerView(generics.GenericAPIView):
         description=(
             "Start an onboarding pipeline. Body: `{\"operation\": ..., "
             "\"payload\": {...}}`.\n\n"
-            "The signed-in user is recorded as TRIGGERED_BY; it is not taken "
-            "from the body. `payload.requester_email` is a different thing -- "
-            "the customer who raised the ITSM ticket.\n\n"
+            "Requires the caller's own GitLab personal access token in the "
+            "`X-GitLab-Token` header. The request is made as them, so GitLab "
+            "records the pipeline against their account. The token is used for "
+            "that one call and is never stored, logged or put in the session. "
+            "`payload.requester_email` is a different thing -- the customer who "
+            "raised the ITSM ticket.\n\n"
             "Field-level validation is the pipeline's own "
             "(pipeline-scripts/load-payload.sh); this endpoint checks only that "
             "the operation exists, that every key is a field that operation "
@@ -200,8 +203,14 @@ class PipelineTriggerView(generics.GenericAPIView):
         if not operation:
             return Response({'detail': 'No operation given.'}, status=400)
 
+        # The header, not the body: a token in a JSON body is the sort of thing
+        # that ends up in a request log or an error report the first time
+        # something goes wrong. Read here, passed down, and out of scope when
+        # this method returns.
+        user_token = request.headers.get('X-GitLab-Token', '').strip()
+
         try:
-            result = trigger(operation, payload, _who(request.user), settings=settings)
+            result = trigger(operation, payload, user_token, settings=settings)
         except TriggerRejected as exc:
             # Refused here, nothing left the process.
             return Response({'detail': str(exc)}, status=400)
@@ -220,17 +229,3 @@ class PipelineTriggerView(generics.GenericAPIView):
             'operation': operation,
             'dry_run': bool(result.get('dry_run')),
         }, status=201)
-
-
-def _who(user):
-    """How the pipeline should record the person who pressed the button.
-
-    Email when there is one, because that is what identifies someone across
-    GitLab, ITSM and the repository; the username is a local artefact and means
-    little outside this dashboard.
-    """
-    email = (getattr(user, 'email', '') or '').strip()
-    username = (getattr(user, 'get_username', lambda: '')() or '').strip()
-    if email and username and email != username:
-        return f'{username} <{email}>'
-    return email or username or 'unknown'

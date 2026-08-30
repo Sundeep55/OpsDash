@@ -26,6 +26,11 @@ export const PipelineDialog = {
         loadError: { type: String, default: '' },
         result: { type: Object, default: null },
         dryRun: { type: Boolean, default: false },
+        // The operator's GitLab token, held in their browser. Empty means they
+        // have not supplied one yet; the form still fills in, and the prompt
+        // sits above the submit button rather than blocking the whole dialog.
+        hasToken: { type: Boolean, default: false },
+        gitlabUrl: { type: String, default: '' },
         /* A function, not an event.
          *
          * $emit returns the component instance, never a promise, so `await
@@ -39,7 +44,7 @@ export const PipelineDialog = {
          * operator is looking. */
         onSubmit: { type: Function, required: true },
     },
-    emits: ['close'],
+    emits: ['close', 'set-token'],
 
     data() {
         return {
@@ -49,6 +54,8 @@ export const PipelineDialog = {
             error: '',
             showPayload: false,
             copied: false,
+            tokenInput: '',
+            showTokenField: false,
             // The dialog opens before the schema has been fetched, so the
             // prefill cannot be applied on the way in -- working out which
             // fields an operation accepts needs the schema. This records
@@ -260,8 +267,12 @@ export const PipelineDialog = {
             return !!this.tenantRecord && !this.state.values[this.nameField];
         },
 
+        needsToken() {
+            return !this.dryRun && !this.hasToken;
+        },
+
         ready() {
-            return !this.problems.length && !this.sending && !this.result;
+            return !this.problems.length && !this.sending && !this.result && !this.needsToken;
         },
     },
 
@@ -425,6 +436,22 @@ export const PipelineDialog = {
             } finally {
                 this.sending = false;
             }
+        },
+
+        saveToken() {
+            const value = this.tokenInput.trim();
+            if (!value) return;
+            this.$emit('set-token', value);
+            // Cleared from the component the moment it is handed over, so it is
+            // not sitting in a data property for the rest of the session.
+            this.tokenInput = '';
+            this.showTokenField = false;
+        },
+
+        forgetToken() {
+            this.$emit('set-token', '');
+            this.tokenInput = '';
+            this.showTokenField = true;
         },
 
         copyPayload() {
@@ -691,6 +718,39 @@ export const PipelineDialog = {
         <p class="text-xs font-bold text-red-800">{{ error }}</p>
       </div>
 
+      <!--
+        The token prompt.
+
+        Below the form, not in front of it: filling the request in is useful on
+        its own -- Copy works without a token -- and a credential box as the
+        first thing you see reads like a login wall on a page you are already
+        signed in to.
+      -->
+      <div v-if="needsToken || showTokenField" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+        <label for="pf-gitlab-token" class="block">
+          <span class="text-xs font-bold text-amber-900">Your GitLab personal access token</span>
+          <span class="block text-[11px] text-amber-800 mt-0.5">
+            The request is sent as you, so the pipeline is recorded against your account rather
+            than a shared one. Needs <span class="font-mono">api</span> scope.
+            Kept in this browser tab only — it is not saved on the server, and it is gone when
+            the tab closes.
+            <a v-if="gitlabUrl" :href="gitlabUrl + '/-/user_settings/personal_access_tokens'"
+               target="_blank" rel="noopener"
+               class="font-bold underline underline-offset-2">Create one</a>
+          </span>
+        </label>
+        <div class="mt-2 flex items-center gap-2">
+          <input id="pf-gitlab-token" v-model="tokenInput" type="password" autocomplete="off"
+                 spellcheck="false" placeholder="glpat-…"
+                 @keyup.enter="saveToken"
+                 class="flex-1 rounded-lg border border-amber-300 bg-white px-3 text-sm font-mono text-slate-900 shadow-sm outline-none focus:ring-2 focus:ring-amber-500 h-[38px]">
+          <button @click="saveToken" :disabled="!tokenInput.trim()" type="button"
+                  class="shrink-0 h-[38px] px-3 rounded-lg bg-slate-900 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed focus-ring">
+            Use token
+          </button>
+        </div>
+      </div>
+
       <!-- payload preview -->
       <div class="mt-4">
         <div class="flex items-center gap-3">
@@ -720,8 +780,13 @@ export const PipelineDialog = {
       <p v-if="dryRun" class="text-[11px] font-bold text-amber-700">
         Dry run: the request is printed to the server console, not sent to GitLab.
       </p>
-      <p v-else class="text-[11px] text-slate-500">
-        Runs as the dashboard's service token; recorded against your account.
+      <p v-else-if="hasToken" class="text-[11px] text-slate-500">
+        Sent as you, so GitLab records the pipeline against your account.
+        <button @click="forgetToken" type="button"
+                class="font-bold underline underline-offset-2 hover:text-slate-800 focus-ring rounded">Use a different token</button>
+      </p>
+      <p v-else class="text-[11px] font-bold text-amber-700">
+        A GitLab token is needed to send this.
       </p>
       <div class="flex items-center gap-2">
         <button @click="$emit('close')" type="button"

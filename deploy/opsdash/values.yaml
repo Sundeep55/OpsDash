@@ -77,11 +77,14 @@ gitlab:
 # usually NOT the same project as gitlab.projectId above, which is the
 # customer-instances repo the dashboard reads.
 #
-# The token is a secret: put PIPELINE_TOKEN in the Secret alongside
-# GITLAB_TOKEN. It needs api scope on the pipeline project, and it is the
-# identity every dashboard-triggered pipeline runs as -- which is why the
-# request carries TRIGGERED_BY with the signed-in user, so the pipeline records
-# who actually asked rather than just the service account.
+# PIPELINE_TOKEN goes in the Secret alongside GITLAB_TOKEN. It reads
+# request-schema.yaml and nothing else, so read_api on the pipeline project is
+# enough -- it does NOT start pipelines.
+#
+# Starting one uses the operator's own GitLab token, which they enter in the
+# form and which is never stored on the server. GitLab therefore records each
+# pipeline against the person who asked for it, and the CI file keeps the two
+# inputs it always had rather than carrying an attribution field.
 # -----------------------------------------------------------------------------
 pipeline:
   enabled: false

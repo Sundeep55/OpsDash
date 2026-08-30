@@ -71,12 +71,15 @@ export function getJSON(path, params) {
     return request(path + (params ? buildQuery(params) : ''));
 }
 
-export function postJSON(path, body) {
+export function postJSON(path, body, headers = {}) {
     return request(path, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'X-CSRFToken': getCookie('csrftoken'),
+            // Callers may add their own -- the pipeline trigger passes the
+            // operator's GitLab token this way, so it never enters the body.
+            ...headers,
         },
         body: body ? JSON.stringify(body) : undefined,
     });

@@ -103,6 +103,9 @@
         :load-error="pipelineLoadError"
         :result="pipelineResult"
         :dry-run="pipelineDryRun"
+        :has-token="pipelineHasToken"
+        :gitlab-url="pipelineGitlabUrl"
+        @set-token="setPipelineToken"
         :on-submit="submitPipeline"
         @close="closePipeline"></pipeline-dialog>
 </div>

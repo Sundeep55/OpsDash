@@ -95,7 +95,7 @@ ones you set are emitted — anything omitted keeps the `settings.py` default.
 | `PIPELINE_SCHEMA_TTL_SECONDS` | `300` | How long a fetched schema is reused. |
 | `PIPELINE_SSL_VERIFY` | falls back to `GITLAB_SSL_VERIFY` | |
 | `PIPELINE_ALLOWED_GROUP` | empty | Restrict triggering to one Django group. Empty means any signed-in user. |
-| **`PIPELINE_TOKEN`** | — | **Secret.** `api` scope on the pipeline project. |
+| **`PIPELINE_TOKEN`** | — | **Secret.** Reads the schema, and nothing else. `read_api` on the pipeline project is enough. |
 | `PIPELINE_SCHEMA_FILE` | — | **Local only, not in the chart.** See [dry run](#dry-run-no-gitlab). |
 
 ### Not chart-managed
@@ -140,9 +140,11 @@ release.
   (`static/js/vendor/schema-form.js`) so the browser and the CI shim cannot
   disagree about what a valid request is. `tools/check_schema_form_drift.py`
   enforces that.
-- Pipelines run as one service token, so each request carries a `TRIGGERED_BY`
-  input naming the signed-in user. That is **not** the payload's
-  `requester_email`, which is the customer who raised the ITSM ticket.
+- **Each operator supplies their own GitLab token**, prompted for in the form and
+  kept in their browser tab (`sessionStorage`), never on the server. The request
+  is sent as them, so GitLab records the pipeline against their account — and the
+  CI file keeps the two inputs it always had, with no attribution field bolted on.
+  `PIPELINE_TOKEN` is only used to read the schema.
 - Restrict who may use it with `PIPELINE_ALLOWED_GROUP`.
 
 ### CSV exports

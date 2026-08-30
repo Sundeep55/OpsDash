@@ -39,7 +39,7 @@ oc create secret generic ops-portal-secret \
 |---|---|---|
 | `DJANGO_SECRET_KEY` | yes in production | Without it Django falls back to the insecure key committed in `settings.py`. |
 | `GITLAB_TOKEN` | yes | Read-only `api` scope. Without it every poll fails and the dashboard stays empty. |
-| `PIPELINE_TOKEN` | only with `pipeline.enabled` | `api` scope on the *pipeline* project. Every dashboard-triggered pipeline runs as this identity — see below. |
+| `PIPELINE_TOKEN` | only with `pipeline.enabled` | Reads the schema from the *pipeline* project; `read_api` is enough. Pipelines are started with the operator's own token, not this one. |
 | `DJANGO_SUPERUSER_USERNAME` | no | `entrypoint.sh` creates the user on first start if this and the password are set. |
 | `DJANGO_SUPERUSER_PASSWORD` | no | |
 | `DJANGO_SUPERUSER_EMAIL` | no | |
@@ -138,11 +138,12 @@ Three things worth knowing:
   unreachable, or the feature is off, the dashboard shows no trigger controls
   and behaves exactly as it did before. The GitLab Pages form is unaffected
   either way, and remains the route that works when OpsDash is down.
-- **Pipelines run as one service identity.** That is what `PIPELINE_TOKEN` is.
-  So each request also carries a `TRIGGERED_BY` input set from the signed-in
-  dashboard user — otherwise every request in GitLab would look like it came
-  from the same bot. It is not the same as the payload's `requester_email`,
-  which is the customer who raised the ITSM ticket.
+- **Two tokens, and only one of them is yours to configure.** `PIPELINE_TOKEN`
+  reads `request-schema.yaml` and nothing else, so `read_api` on the pipeline
+  project is enough. Pipelines are started with the operator's own GitLab token,
+  which they supply in the form and which never reaches the server's storage —
+  so GitLab records each pipeline against the person who asked for it, and the
+  CI file needs no attribution input.
 - **Who may trigger.** By default, anyone who can sign in — the same scope as
   the rest of the dashboard, where everyone can already read everything. Set
   `pipeline.allowedGroup` to restrict it to members of one Django group.

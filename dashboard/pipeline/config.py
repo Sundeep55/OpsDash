@@ -33,6 +33,13 @@ class PipelineSettings:
         self.url = (env.get('PIPELINE_GITLAB_URL') or env.get('GITLAB_URL') or '').rstrip('/')
         self.project_id = env.get('PIPELINE_PROJECT_ID', '')
         self.ref = env.get('PIPELINE_REF', 'main')
+        # Reads the pipeline project: the schema, and nothing else.
+        #
+        # It is NOT used to start pipelines. Starting one uses the token the
+        # operator supplies for their own request, so GitLab records the
+        # pipeline against them rather than against one shared bot -- which is
+        # what makes the TRIGGERED_BY input unnecessary and keeps the CI
+        # contract at the two inputs it always had.
         self.token = env.get('PIPELINE_TOKEN', '')
 
         # Where request-schema.yaml sits inside that project.
