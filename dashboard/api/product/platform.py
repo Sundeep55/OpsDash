@@ -10,8 +10,10 @@ from dashboard.serializers import (
     GPUAllocationFlatSerializer, PlatformClusterMetricsSerializer,
 )
 
+from .auth import ProductApiAuthMixin
 
-class PlatformClusterApiView(APIView):
+
+class PlatformClusterApiView(ProductApiAuthMixin, APIView):
     @extend_schema(responses=PlatformClusterMetricsSerializer(many=True))
     def get(self, request):
         # Two rows out, so nothing here should be per-namespace work. The
@@ -68,7 +70,7 @@ class PlatformClusterApiView(APIView):
         return Response(data)
 
 
-class PlatformGPUApiView(APIView):
+class PlatformGPUApiView(ProductApiAuthMixin, APIView):
     @extend_schema(
         responses=GPUAllocationFlatSerializer(many=True),
         description=(

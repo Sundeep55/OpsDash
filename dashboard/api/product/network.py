@@ -8,8 +8,10 @@ from dashboard.serializers import (
     EgressRoutingFlatSerializer, ServiceMeshFlatSerializer,
 )
 
+from .auth import ProductApiAuthMixin
 
-class NetworkEgressApiView(APIView):
+
+class NetworkEgressApiView(ProductApiAuthMixin, APIView):
     @extend_schema(responses=EgressRoutingFlatSerializer(many=True))
     def get(self, request):
         namespaces = Namespace.objects.filter(egress_router__isnull=False).select_related('cluster', 'egress_router')
@@ -22,7 +24,7 @@ class NetworkEgressApiView(APIView):
         return Response(data)
 
 
-class NetworkServiceMeshApiView(APIView):
+class NetworkServiceMeshApiView(ProductApiAuthMixin, APIView):
     @extend_schema(responses=ServiceMeshFlatSerializer(many=True))
     def get(self, request):
         meshes = ServiceMeshControlPlane.objects.select_related('namespace', 'namespace__cluster')

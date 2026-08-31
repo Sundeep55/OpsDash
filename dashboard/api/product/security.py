@@ -11,6 +11,8 @@ from dashboard.serializers import (
     SecurityPostureFlatSerializer,
 )
 
+from .auth import ProductApiAuthMixin
+
 
 @extend_schema_view(
     get=extend_schema(
@@ -23,7 +25,7 @@ from dashboard.serializers import (
         ),
     )
 )
-class SecurityRouteExceptionApiView(generics.ListAPIView):
+class SecurityRouteExceptionApiView(ProductApiAuthMixin, generics.ListAPIView):
     serializer_class = RouteExceptionFlatSerializer
     # The only product endpoint that used to paginate. Consumers of these
     # endpoints want one call and one complete dataset, so it now matches the
@@ -90,7 +92,7 @@ class SecurityRouteExceptionApiView(generics.ListAPIView):
         return rows
 
 
-class SecurityPostureApiView(APIView):
+class SecurityPostureApiView(ProductApiAuthMixin, APIView):
     # Plain APIView, so there is no pagination to disable -- it returns the full
     # list by construction, like the other flat product endpoints.
 
@@ -130,7 +132,7 @@ class SecurityPostureApiView(APIView):
         return Response(data)
 
 
-class SecurityRobotApiView(APIView):
+class SecurityRobotApiView(ProductApiAuthMixin, APIView):
     @extend_schema(responses=RobotAccountFlatSerializer(many=True))
     def get(self, request):
         robots = RobotAccount.objects.select_related('namespace')

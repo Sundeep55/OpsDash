@@ -3,7 +3,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from . import (analytics, capsules, exports, namespaces, pipeline, requests,
-               siglum_export, siglums, sync, tenants, users)
+               security, siglum_export, siglums, sync, tenants, users)
 
 router = DefaultRouter()
 router.register(r'clusters', tenants.ClusterViewSet, basename='cluster')
@@ -27,6 +27,11 @@ urlpatterns = [
     path('siglums/', siglums.SiglumListView.as_view(), name='api-siglums-list'),
     path('siglums/export/', siglum_export.SiglumExportView.as_view(), name='api-siglums-export'),
     path('requests/', requests.RequestTicketListView.as_view(), name='api-requests-list'),
+
+    # The expiry banner's source. Same view as the product endpoint, session
+    # authenticated -- see dashboard/api/internal/security.py.
+    path('route-exceptions/', security.InternalRouteExceptionApiView.as_view(),
+         name='api-route-exceptions'),
 
     path('analytics/', analytics.GlobalAnalyticsView.as_view(), name='api-analytics'),
     path('sync/', sync.TriggerSyncView.as_view(), name='api-sync'),

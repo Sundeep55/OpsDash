@@ -23,6 +23,17 @@ data:
   # producing a dashboard that looks fine and loses its database on restart.
   DATABASE_PATH: {{ include "opsdash.databasePath" . | quote }}
 
+  # --- Cookie and transport security ---
+  # Emitted only when set, so the default ("secure unless debug") holds.
+  {{- with .Values.django.sessionCookieSecure }}
+  SESSION_COOKIE_SECURE: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.django.csrfCookieSecure }}
+  CSRF_COOKIE_SECURE: {{ . | quote }}
+  {{- end }}
+  SECURE_HSTS_SECONDS: {{ .Values.django.hstsSeconds | quote }}
+  SECURE_SSL_REDIRECT: {{ .Values.django.sslRedirect | quote }}
+
   # --- UI text ---
   PORTAL_NAME: {{ .Values.portal.name | quote }}
   PORTAL_TITLE: {{ .Values.portal.title | quote }}

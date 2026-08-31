@@ -22,6 +22,39 @@ CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.environ.get('DJANGO_CSRF
 # so that pagination links and absolute URIs are generated as HTTPS instead of HTTP.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
+# =====================================================================
+# COOKIE SECURITY
+# =====================================================================
+# The session cookie is the only thing standing in front of the API. Every
+# endpoint under /api/v2/ answers 403 without it, so a cookie captured off the
+# wire is read access to the whole estate -- and, because the pipeline trigger
+# is authenticated the same way, the request carrying an operator's GitLab
+# token rides on it too.
+#
+# Secure-only whenever DEBUG is off, so a production pod cannot be talked into
+# sending either cookie over plain HTTP. Tied to DEBUG rather than hardcoded
+# because local development is served over http://localhost, where a
+# secure-only cookie would simply never be set and nobody could log in.
+#
+# Overridable for the case this cannot anticipate: TLS terminated somewhere
+# that does not set X-Forwarded-Proto.
+SESSION_COOKIE_SECURE = os.environ.get(
+    'SESSION_COOKIE_SECURE', str(not DEBUG)).lower() == 'true'
+CSRF_COOKIE_SECURE = os.environ.get(
+    'CSRF_COOKIE_SECURE', str(not DEBUG)).lower() == 'true'
+
+# Off by default, and deliberately so: HSTS tells every browser to refuse plain
+# HTTP for this host for the whole max-age, and that is not undoable by
+# redeploying -- the browser remembers. Turn it on once the hostname is
+# certainly HTTPS-only and you are happy to commit to that.
+SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', '0') or 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
+
+# The OpenShift Route already redirects (insecureEdgeTerminationPolicy:
+# Redirect), so this is off by default rather than duplicating that hop. Set it
+# when running behind something that does not.
+SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'false').lower() == 'true'
+
 # Database: Read the DB path from the environment so it can be stored in a PVC later
 DATABASES = {
     'default': {
@@ -48,6 +81,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    # Issues the tokens the product API authenticates with. See
+    # dashboard/api/product/auth.py for why that half does not take the session.
+    'rest_framework.authtoken',
     'django_filters',
     'drf_spectacular',
     'drf_spectacular_sidecar',
@@ -203,13 +239,36 @@ AUTH_PASSWORD_VALIDATORS = [
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
+    # The default is the browser session, because the default consumer is the
+    # SPA and a browser has nothing else to offer. The product endpoints
+    # override this with a token and refuse the session -- a machine-facing API
+    # should want a credential somebody deliberately issued, not one that
+    # happens to exist because a person is signed in in another tab.
+    #
+    # BasicAuthentication was here and is gone: it sends a reusable password on
+    # every request and cannot be revoked without changing that password.
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.SessionAuthentication', 
-        'rest_framework.authentication.BasicAuthentication',   
+        'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated', 
+        'rest_framework.permissions.IsAuthenticated',
     ],
+    # JSON only in production. DRF's default renderer list ends with
+    # BrowsableAPIRenderer, which turns every endpoint into an HTML console --
+    # filter controls, and links from each response to every other endpoint.
+    #
+    # It grants nothing: it answers to the same session, for the same person,
+    # with the same data the dashboard already shows them. What it removes is
+    # the effort. Pasting /api/v2/users/ into the address bar stops being a JSON
+    # dump and becomes a browsable console, which is a lot of discoverable
+    # surface for something the SPA never asks for -- it sends
+    # Accept: application/json and gets JSONRenderer either way.
+    #
+    # Kept under DEBUG because it is genuinely useful locally, and losing it
+    # would mean poking at endpoints with curl for no reason.
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ] + (['rest_framework.renderers.BrowsableAPIRenderer'] if DEBUG else []),
 }
 
 SPECTACULAR_SETTINGS = {

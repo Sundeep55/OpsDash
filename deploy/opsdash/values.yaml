@@ -46,6 +46,23 @@ django:
   # Where the SQLite file lives. Must sit under persistence.mountPath.
   databasePath: "/app/data/db.sqlite3"
 
+  # Cookie security. Empty means "secure whenever debug is off", which is what
+  # you want -- the session cookie is the only thing in front of the API, so a
+  # production pod must never send it over plain HTTP. Set explicitly only if
+  # TLS is terminated somewhere that does not pass X-Forwarded-Proto.
+  sessionCookieSecure: ""
+  csrfCookieSecure: ""
+
+  # HSTS, off by default and deliberately so: it tells every browser to refuse
+  # plain HTTP for this host for the whole max-age, and redeploying does not
+  # undo it -- the browser remembers. Turn it on (e.g. 31536000) once the
+  # hostname is certainly HTTPS-only.
+  hstsSeconds: 0
+
+  # The Route already redirects (insecureEdgeTerminationPolicy: Redirect), so
+  # this stays off rather than duplicating the hop.
+  sslRedirect: false
+
 # UI text. Read from the environment by ops_portal/settings.py.
 portal:
   name: "Ops Control Plane"

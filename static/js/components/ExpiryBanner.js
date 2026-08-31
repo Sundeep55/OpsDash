@@ -7,9 +7,10 @@
  * lapsed. Putting it where you have to go looking is the same as not showing it.
  * This appears wherever the operator already is.
  *
- * It reads the same product endpoint an SMTP job would
- * (/api/v2/security/route-exceptions/?status=expiring,expired), so the screen
- * and the mail cannot disagree about what is expiring.
+ * It reads /api/v2/route-exceptions/, which is the same view an SMTP job reads
+ * at /api/v2/security/route-exceptions/ -- subclassed only to take the browser
+ * session instead of a token. Same queryset, so the screen and the mail cannot
+ * disagree about what is expiring.
  *
  * Note: this component's template string compiles with Vue's default {{ }}
  * delimiters. The app configures [[ ]] for the root in-DOM template only, which
@@ -81,7 +82,11 @@ export const ExpiryBanner = {
                     expired_within: String(EXPIRED_WITHIN_DAYS),
                 });
                 if (this.cluster && this.cluster !== 'All') q.set('cluster', this.cluster);
-                const res = await fetch(`/api/v2/security/route-exceptions/?${q}`, {
+                // The internal copy of the endpoint, not /security/…, which is
+                // token-only. Same view and therefore the same answer -- a
+                // notifier reading the product API cannot disagree with what is
+                // on screen here.
+                const res = await fetch(`/api/v2/route-exceptions/?${q}`, {
                     headers: { 'Accept': 'application/json' },
                 });
                 if (!res.ok) throw new Error(res.status);

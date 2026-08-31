@@ -8,8 +8,10 @@ from dashboard.serializers import (
     HelmDeploymentFlatSerializer, RegistryMirrorFlatSerializer,
 )
 
+from .auth import ProductApiAuthMixin
 
-class StackHelmApiView(APIView):
+
+class StackHelmApiView(ProductApiAuthMixin, APIView):
     @extend_schema(responses=HelmDeploymentFlatSerializer(many=True))
     def get(self, request):
         charts = HelmDeployment.objects.select_related('namespace', 'namespace__cluster')
@@ -26,7 +28,7 @@ class StackHelmApiView(APIView):
         return Response(data)
 
 
-class StackMirrorApiView(APIView):
+class StackMirrorApiView(ProductApiAuthMixin, APIView):
     @extend_schema(responses=RegistryMirrorFlatSerializer(many=True))
     def get(self, request):
         mirrors = RegistryMirror.objects.select_related('namespace', 'namespace__cluster')

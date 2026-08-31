@@ -44,6 +44,10 @@ never reads is worse than no setting at all — see the note on `PORTAL_NAME` un
 | `PORTAL_TITLE` | `IDP Dashboard` | Browser tab title. |
 | **`DJANGO_SECRET_KEY`** | insecure built-in | **Secret.** Without it production runs on the key committed in `settings.py`. |
 | `DJANGO_SUPERUSER_USERNAME` / `_PASSWORD` / `_EMAIL` | — | **Secret**, optional. `entrypoint.sh` creates the user on first start if the first two are set. |
+| `SESSION_COOKIE_SECURE` | secure unless `DEBUG` | Set explicitly only if TLS terminates somewhere that does not pass `X-Forwarded-Proto`. |
+| `CSRF_COOKIE_SECURE` | secure unless `DEBUG` | As above. |
+| `SECURE_HSTS_SECONDS` | `0` (off) | Opt-in. A browser that sees HSTS refuses plain HTTP for the whole max-age and redeploying does not undo it. |
+| `SECURE_SSL_REDIRECT` | `false` | The Route already redirects; set this only behind something that does not. |
 
 ### GitLab sync — the repo the dashboard reads
 
@@ -97,6 +101,16 @@ ones you set are emitted — anything omitted keeps the `settings.py` default.
 | `PIPELINE_ALLOWED_GROUP` | empty | Restrict triggering to one Django group. Empty means any signed-in user. |
 | **`PIPELINE_TOKEN`** | — | **Secret.** Reads the schema, and nothing else. `read_api` on the pipeline project is enough. |
 | `PIPELINE_SCHEMA_FILE` | — | **Local only, not in the chart.** See [dry run](#dry-run-no-gitlab). |
+
+### Product API tokens — deliberately not settings
+
+There is no variable that opens or closes the product API, and none that carries
+a token. Tokens are rows in the database, issued per user with
+`manage.py apitoken` — see
+[Authentication](#authentication--the-portal-and-the-api-now-authenticate-separately).
+A ConfigMap that could switch the machine API onto session auth would be a way to
+undo the separation by editing YAML, so which credential opens which door stays
+in code (`dashboard/api/product/auth.py`).
 
 ### Not chart-managed
 
@@ -174,6 +188,75 @@ A route exception is a time-limited waiver. Two fixes worth knowing:
 
 Not env-configurable: the windows are constants on the model, next to the
 reasoning.
+
+### Authentication — the portal and the API now authenticate separately
+
+Every endpoint under `/api/v2/` has always required a signed-in session; an
+anonymous call gets `403`. Two things changed.
+
+**`/api/schema/` and `/api/docs/` now require a session too.** The schema was
+public: 47 KB naming 36 endpoints with their parameters and field names. No
+estate data, so it was a map of the application rather than a leak of its
+contents — but an internal tool has no reason to publish that map.
+
+**The product endpoints no longer accept the browser session at all.** They
+authenticate with a DRF token and nothing else. The reason: signing into the
+portal was implicitly signing into the machine-facing API, so opening Swagger in
+another tab returned live estate data on the strength of a cookie that existed
+because a person happened to be logged in elsewhere. A machine API should want a
+credential somebody deliberately issued, and one that can be revoked on its own.
+
+The two halves are now:
+
+| | endpoints | credential | anon | session | token |
+|---|---|---|---|---|---|
+| **portal** | `/api/v2/…` the SPA calls | session cookie | 403 | 200 | 403 |
+| **product** | `/api/v2/{security,finops,network,platform,stack,devex}/…` | `Authorization: Token …` | 401 | 401 | 200 |
+
+Each half refuses the other's credential, which is the point — a captured cookie
+is not an API key, and a leaked token is not a portal login.
+
+`BasicAuthentication` was in the defaults and is gone. It sends a reusable
+password on every request and cannot be revoked without changing that password.
+
+#### Issuing a token
+
+```bash
+python manage.py apitoken --list
+python manage.py apitoken svc-finops --create
+python manage.py apitoken svc-finops --rotate
+python manage.py apitoken svc-finops --revoke
+```
+
+```bash
+curl -H "Authorization: Token <key>" https://<host>/api/v2/finops/quotas/
+```
+
+DRF stores tokens in full rather than hashed, so `--show` can reprint one — that
+is DRF's design, and it is worth knowing when deciding who may reach the
+database. There is one token per user, so revoking cuts off every script using
+that identity: give each consumer its own service account rather than reusing a
+person's.
+
+Nothing here is env-configurable. `authentication_classes` is code, in
+`dashboard/api/product/auth.py`, because which credential opens which door is not
+a knob that should be turnable from a ConfigMap.
+
+#### One endpoint exists twice, on purpose
+
+The expiry banner needs route exceptions and is a browser, so it cannot hold a
+token. `/api/v2/route-exceptions/` is the same view as
+`/api/v2/security/route-exceptions/`, subclassed to take the session instead
+(`dashboard/api/internal/security.py`). The filtering, ordering and expiry window
+still live in one place, so the banner and a notifier reading the product API
+cannot disagree about what is expiring — which was the reason the banner was
+pointed at the product endpoint originally.
+
+Only `/healthz` and `/readyz` are open, because the kubelet has no session. They
+return a fixed status object and nothing else.
+
+Both cookies are secure-only whenever `DEBUG` is off. Local development over
+`http://localhost` is unaffected, because that runs with `DEBUG` on.
 
 ### Deployment as a Helm chart
 

@@ -10,8 +10,10 @@ from dashboard.serializers import (
     FinOpsQuotaFlatSerializer, FinOpsUnattributedSerializer,
 )
 
+from .auth import ProductApiAuthMixin
 
-class FinOpsQuotaApiView(APIView):
+
+class FinOpsQuotaApiView(ProductApiAuthMixin, APIView):
     @extend_schema(responses=FinOpsQuotaFlatSerializer(many=True))
     def get(self, request):
         namespaces = Namespace.objects.select_related('tenant', 'resource_quota')
@@ -36,7 +38,7 @@ class FinOpsQuotaApiView(APIView):
         return Response(data)
 
 
-class FinOpsUnattributedApiView(APIView):
+class FinOpsUnattributedApiView(ProductApiAuthMixin, APIView):
     @extend_schema(responses=FinOpsUnattributedSerializer(many=True))
     def get(self, request):
         namespaces = Namespace.objects.filter(

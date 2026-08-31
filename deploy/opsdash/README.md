@@ -148,6 +148,26 @@ Three things worth knowing:
   the rest of the dashboard, where everyone can already read everything. Set
   `pipeline.allowedGroup` to restrict it to members of one Django group.
 
+### Product API tokens
+
+The endpoints under `/api/v2/{security,finops,network,platform,stack,devex}/`
+refuse the browser session and take only `Authorization: Token …`. There is no
+value, no ConfigMap key and no Secret for this — tokens are database rows, issued
+per user:
+
+```bash
+oc exec deploy/<release> -- python manage.py apitoken svc-finops --create
+```
+
+Two consequences for the deployment:
+
+- **Tokens live in the SQLite file on the PVC.** They survive a redeploy and are
+  lost with the volume. `persistence.retain` (true by default) is what stops
+  `helm uninstall` taking them with it.
+- **Nothing about the split is configurable at deploy time.** Which credential
+  opens which door is code, so a ConfigMap edit cannot put the machine API back
+  behind the portal's cookie.
+
 `replicas` is not a value. One Gunicorn process and one sync daemon share one
 SQLite file on a ReadWriteOnce volume; a second replica cannot schedule anyway,
 because the volume is already attached.

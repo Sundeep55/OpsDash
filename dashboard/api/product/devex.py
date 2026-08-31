@@ -6,9 +6,10 @@ from rest_framework.views import APIView
 from dashboard.api.filters import parse_cpu, parse_mem_gi
 from dashboard.models import Namespace
 from dashboard.serializers import DevSpaceFlatSerializer, ProjectRosterSerializer
+from .auth import ProductApiAuthMixin
 
 
-class DevExDevspaceApiView(APIView):
+class DevExDevspaceApiView(ProductApiAuthMixin, APIView):
     @extend_schema(responses=DevSpaceFlatSerializer(many=True))
     def get(self, request):
         namespaces = Namespace.objects.filter(is_devspace=True).select_related('cluster', 'resource_quota')
@@ -25,7 +26,7 @@ class DevExDevspaceApiView(APIView):
         return Response(data)
 
 
-class DevExRosterApiView(APIView):
+class DevExRosterApiView(ProductApiAuthMixin, APIView):
     @extend_schema(responses=ProjectRosterSerializer(many=True))
     def get(self, request):
         namespaces = Namespace.objects.prefetch_related('user_accesses')

@@ -12,6 +12,7 @@ from django.apps import apps
 from django.test import Client
 from django.contrib.auth import get_user_model
 from django.core.serializers.json import DjangoJSONEncoder
+from rest_framework.authtoken.models import Token
 
 OUT = sys.argv[1]
 os.makedirs(OUT, exist_ok=True)
@@ -28,9 +29,16 @@ with open(os.path.join(OUT, "_db.json"), "w") as fh:
     json.dump(tables, fh, indent=2, sort_keys=True, cls=DjangoJSONEncoder)
 
 # ------------------------------------------------------------------ API dump
+# Two credentials, because the API has two halves that refuse each other. The
+# portal endpoints take the session and reject a token; the product endpoints
+# (/security/, /finops/, /network/, /platform/, /stack/, /devex/) take a token
+# and reject the session. Sending both means one snapshot still covers
+# everything -- with only force_login, those fourteen endpoints silently
+# snapshot as 401 and a before/after diff compares two sets of error bodies.
 User = get_user_model()
 user, _ = User.objects.get_or_create(username="snapshot", defaults={"is_staff": True, "is_superuser": True})
-client = Client()
+token, _ = Token.objects.get_or_create(user=user)
+client = Client(headers={"authorization": f"Token {token.key}"})
 client.force_login(user)
 
 ENDPOINTS = [
